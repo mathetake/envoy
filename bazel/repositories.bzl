@@ -858,7 +858,10 @@ def _proxy_wasm_cpp_sdk():
     external_http_archive(name = "proxy_wasm_cpp_sdk")
 
 def _proxy_wasm_cpp_host():
-    external_http_archive(name = "proxy_wasm_cpp_host")
+    native.local_repository(
+        name = "proxy_wasm_cpp_host",
+        path = "/home/mathetake/proxy-wasm-cpp-host",
+    )
 
 def _emscripten_toolchain():
     external_http_archive(

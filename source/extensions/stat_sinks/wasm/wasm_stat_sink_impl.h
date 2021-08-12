@@ -22,19 +22,13 @@ public:
       : plugin_(plugin), singleton_(singleton) {}
 
   void flush(Stats::MetricSnapshot& snapshot) override {
-    Wasm* wasm = nullptr;
-    auto handle = singleton_->handle();
-    if (handle->wasmHandle()) {
-      wasm = handle->wasmHandle()->wasm().get();
-      if (wasm->isFailed()) {
-        // Try to restart.
-        if (singleton_->tryRestartPlugin()) {
-          handle = singleton_->handle();
-          wasm = handle->wasmHandle()->wasm().get();
-        }
-      }
+    auto healthy = singleton_->pluginHandle()->isHealthy();
+    if (!singleton_->pluginHandle()->isHealthy()) {
+      // Try restarting.
+      healthy = singleton_->tryRestartPlugin();
     }
-    if (wasm && !wasm->isFailed()) {
+    if (healthy) {
+      auto wasm = static_cast<Wasm*>(singleton_->pluginHandle()->threadLocalWasmHandle()->wasm());
       wasm->onStatsUpdate(plugin_, snapshot);
     }
   }

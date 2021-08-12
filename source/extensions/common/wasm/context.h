@@ -31,12 +31,11 @@ using proxy_wasm::ContextBase;
 using proxy_wasm::Pairs;
 using proxy_wasm::PairsWithStringValues;
 using proxy_wasm::PluginBase;
-using proxy_wasm::PluginHandleBase;
+using proxy_wasm::PluginHandleSharedPtr;
 using proxy_wasm::SharedQueueDequeueToken;
 using proxy_wasm::SharedQueueEnqueueToken;
 using proxy_wasm::WasmBase;
 using proxy_wasm::WasmBufferType;
-using proxy_wasm::WasmHandleBase;
 using proxy_wasm::WasmHeaderMapType;
 using proxy_wasm::WasmResult;
 using proxy_wasm::WasmStreamType;
@@ -46,13 +45,9 @@ using CapabilityRestrictionConfig = envoy::extensions::wasm::v3::CapabilityRestr
 using SanitizationConfig = envoy::extensions::wasm::v3::SanitizationConfig;
 using GrpcService = envoy::config::core::v3::GrpcService;
 
-class PluginHandle;
 class Wasm;
 
 using PluginBaseSharedPtr = std::shared_ptr<PluginBase>;
-using PluginHandleBaseSharedPtr = std::shared_ptr<PluginHandleBase>;
-using PluginHandleSharedPtr = std::shared_ptr<PluginHandle>;
-using WasmHandleBaseSharedPtr = std::shared_ptr<WasmHandleBase>;
 
 // Opaque context object.
 class StorageObject {
@@ -399,7 +394,6 @@ protected:
   const Http::HeaderMap* getConstMap(WasmHeaderMapType type);
 
   const LocalInfo::LocalInfo* root_local_info_{nullptr}; // set only for root_context.
-  PluginHandleSharedPtr plugin_handle_{nullptr};
 
   uint32_t next_http_call_token_ = 1;
   uint32_t next_grpc_token_ = 1; // Odd tokens are for Calls even for Streams.

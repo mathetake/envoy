@@ -20,29 +20,17 @@ void WasmServiceExtension::createWasm(Server::Configuration::ServerFactoryContex
       config_.config(), envoy::config::core::v3::TrafficDirection::UNSPECIFIED, context.localInfo(),
       nullptr);
 
-  auto callback = [this, &context, plugin](Common::Wasm::WasmHandleSharedPtr base_wasm) {
-    if (!base_wasm) {
-      if (plugin->fail_open_) {
-        ENVOY_LOG(error, "Unable to create Wasm service {}", plugin->name_);
-      } else {
-        ENVOY_LOG(critical, "Unable to create Wasm service {}", plugin->name_);
-      }
-      return;
-    }
+  auto callback = [this, &context, plugin](PluginHandleManagerSharedPtr plugin_handle_manager) {
     if (config_.singleton()) {
       // Return a Wasm VM which will be stored as a singleton by the Server.
-      wasm_service_ =
-          std::make_unique<WasmService>(plugin, std::make_shared<Common::Wasm::PluginHandleManager>(
-                                                    base_wasm, plugin, context.dispatcher()));
+      wasm_service_ = std::make_unique<WasmService>(plugin, plugin_handle_manager);
       return;
     }
     // Per-thread WASM VM.
     // NB: the Slot set() call doesn't complete inline, so all arguments must outlive this call.
     auto tls_slot = ThreadLocal::TypedSlot<Common::Wasm::PluginHandleManager>::makeUnique(
         context.threadLocal());
-    tls_slot->set([base_wasm, plugin](Event::Dispatcher& dispatcher) {
-      return std::make_shared<Common::Wasm::PluginHandleManager>(base_wasm, plugin, dispatcher);
-    });
+    tls_slot->set([plugin_handle_manager](Event::Dispatcher&) { return plugin_handle_manager; });
     wasm_service_ = std::make_unique<WasmService>(plugin, std::move(tls_slot));
   };
 

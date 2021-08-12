@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <memory>
 
 #include "envoy/event/deferred_deletable.h"
 
@@ -10,10 +11,7 @@
 #include "source/extensions/common/wasm/stats_handler.h"
 
 #include "absl/strings/str_cat.h"
-
-#define WASM_CONTEXT(_c)                                                                           \
-  static_cast<Context*>(proxy_wasm::exports::ContextOrEffectiveContext(                            \
-      static_cast<proxy_wasm::ContextBase*>((void)_c, proxy_wasm::current_context_)))
+#include "wasm_vm.h"
 
 using proxy_wasm::FailState;
 using proxy_wasm::Word;
@@ -58,11 +56,6 @@ MonotonicTime::duration cache_time_offset_for_testing{};
 std::mutex code_cache_mutex;
 absl::flat_hash_map<std::string, CodeCacheEntry>* code_cache = nullptr;
 
-// Downcast WasmBase to the actual Wasm.
-inline Wasm* getWasm(WasmHandleSharedPtr& base_wasm_handle) {
-  return static_cast<Wasm*>(base_wasm_handle->wasm().get());
-}
-
 } // namespace
 
 void Wasm::initializeLifecycle(Server::ServerLifecycleNotifier& lifecycle_notifier) {
@@ -76,33 +69,18 @@ void Wasm::initializeLifecycle(Server::ServerLifecycleNotifier& lifecycle_notifi
                                       });
 }
 
-Wasm::Wasm(WasmConfig& config, absl::string_view vm_key, const Stats::ScopeSharedPtr& scope,
-           Upstream::ClusterManager& cluster_manager, Event::Dispatcher& dispatcher)
-    : WasmBase(
-          createWasmVm(config.config().vm_config().runtime()), config.config().vm_config().vm_id(),
-          MessageUtil::anyToBytes(config.config().vm_config().configuration()),
-          toStdStringView(vm_key), config.environmentVariables(), config.allowedCapabilities()),
-      scope_(scope), cluster_manager_(cluster_manager), dispatcher_(dispatcher),
+Wasm::Wasm(WasmVmPtr wasm_vm, WasmConfig& config, absl::string_view vm_key,
+           const Stats::ScopeSharedPtr& scope, Upstream::ClusterManager& cluster_manager,
+           Event::Dispatcher& dispatcher)
+    : WasmBase(std::move(wasm_vm), config.config().vm_config().vm_id(),
+               MessageUtil::anyToBytes(config.config().vm_config().configuration()),
+               toStdStringView(vm_key), config.environmentVariables(),
+               config.allowedCapabilities()),
+      cluster_manager_(cluster_manager), dispatcher_(dispatcher), scope_(scope),
       time_source_(dispatcher.timeSource()), lifecycle_stats_handler_(LifecycleStatsHandler(
                                                  scope, config.config().vm_config().runtime())) {
   lifecycle_stats_handler_.onEvent(WasmEvent::VmCreated);
   ENVOY_LOG(debug, "Base Wasm created {} now active", lifecycle_stats_handler_.getActiveVmCount());
-}
-
-Wasm::Wasm(WasmHandleSharedPtr base_wasm_handle, Event::Dispatcher& dispatcher)
-    : WasmBase(base_wasm_handle,
-               [&base_wasm_handle]() {
-                 return createWasmVm(absl::StrCat(
-                     "envoy.wasm.runtime.",
-                     toAbslStringView(base_wasm_handle->wasm()->wasm_vm()->runtime())));
-               }),
-      scope_(getWasm(base_wasm_handle)->scope_),
-      cluster_manager_(getWasm(base_wasm_handle)->clusterManager()), dispatcher_(dispatcher),
-      time_source_(dispatcher.timeSource()),
-      lifecycle_stats_handler_(getWasm(base_wasm_handle)->lifecycle_stats_handler_) {
-  lifecycle_stats_handler_.onEvent(WasmEvent::VmCreated);
-  ENVOY_LOG(debug, "Thread-Local Wasm created {} now active",
-            lifecycle_stats_handler_.getActiveVmCount());
 }
 
 void Wasm::error(std::string_view message) { ENVOY_LOG(error, "Wasm VM failed {}", message); }
@@ -152,8 +130,8 @@ Wasm::~Wasm() {
 }
 
 // NOLINTNEXTLINE(readability-identifier-naming)
-Word resolve_dns(void* raw_context, Word dns_address_ptr, Word dns_address_size, Word token_ptr) {
-  auto context = WASM_CONTEXT(raw_context);
+Word resolve_dns(Word dns_address_ptr, Word dns_address_size, Word token_ptr) {
+  auto context = static_cast<Context*>(proxy_wasm::contextOrEffectiveContext());
   auto root_context = context->isRootContext() ? context : context->rootContext();
   auto address = context->wasmVm()->getMemory(dns_address_ptr, dns_address_size);
   if (!address) {
@@ -235,9 +213,8 @@ void Wasm::onStatsUpdate(const PluginSharedPtr& plugin, Envoy::Stats::MetricSnap
   context->onStatsUpdate(snapshot);
 }
 
-bool WasmHandle::restartAllowed() {
-  ASSERT(is_base_wasm_); // restartAllowed must be called on base Wasm handle.
-  const auto now = wasm()->dispatcher().timeSource().monotonicTime();
+bool VmCreationRatelimitterImpl::restartAllowed() {
+  const auto now = dispatcher_.timeSource().monotonicTime();
   const auto current_window_key = std::chrono::floor<std::chrono::minutes>(now);
   const auto prev_window_key = current_window_key - std::chrono::minutes(1);
 
@@ -247,11 +224,13 @@ bool WasmHandle::restartAllowed() {
     if (current_restart_window_.window_key_ == prev_window_key) {
       prev_restart_window_ = current_restart_window_;
     }
-    current_restart_window_ = WasmHandle::RestartCountPerMinuteWindow{current_window_key, 0};
+    current_restart_window_ =
+        VmCreationRatelimitterImpl::RestartCountPerMinuteWindow{current_window_key, 0};
   }
 
   if (prev_restart_window_.window_key_ != prev_window_key) {
-    prev_restart_window_ = WasmHandle::RestartCountPerMinuteWindow{prev_window_key, 0};
+    prev_restart_window_ =
+        VmCreationRatelimitterImpl::RestartCountPerMinuteWindow{prev_window_key, 0};
   }
 
   const double current_window_ratio =
@@ -284,44 +263,67 @@ void setTimeOffsetForCodeCacheForTesting(MonotonicTime::duration d) {
   cache_time_offset_for_testing = d;
 }
 
-static proxy_wasm::WasmHandleFactory
-getWasmHandleFactory(WasmConfig& wasm_config, const Stats::ScopeSharedPtr& scope,
-                     Upstream::ClusterManager& cluster_manager, Event::Dispatcher& dispatcher,
-                     Server::ServerLifecycleNotifier& lifecycle_notifier) {
+proxy_wasm::VmCreationRatelimitter getVmCreationRatelimitter(WasmConfig& wasm_config,
+                                                             Wasm* base_wasm) {
+  auto stats_handler = std::make_shared<LifecycleStatsHandler>(
+      base_wasm->scope(), wasm_config.config().vm_config().runtime());
+
+  // If the configuration is not given, then we do not rate-limit.
+  if (!wasm_config.config().vm_config().has_restart_config()) {
+    return [stats_handler]() -> bool {
+      stats_handler->onEvent(WasmEvent::VmRestart);
+      return true;
+    };
+  }
+  // Otherwise, create the VmCreationRatelimitterImpl instance with the configuration.
+  auto impl = std::make_shared<VmCreationRatelimitterImpl>(
+      wasm_config.config().vm_config().restart_config().max_restart_per_minute(),
+      base_wasm->dispatcher());
+  return [stats_handler, impl]() -> bool {
+    stats_handler->onEvent(WasmEvent::VmRestart);
+    return impl->restartAllowed();
+  };
+}
+
+static proxy_wasm::BaseWasmHandleFactory
+getBaseWasmHandleFactory(WasmConfig& wasm_config, const Stats::ScopeSharedPtr& scope,
+                         Upstream::ClusterManager& cluster_manager, Event::Dispatcher& dispatcher,
+                         Server::ServerLifecycleNotifier& lifecycle_notifier) {
   return [&wasm_config, &scope, &cluster_manager, &dispatcher,
-          &lifecycle_notifier](std::string_view vm_key) -> WasmHandleBaseSharedPtr {
-    auto wasm = std::make_shared<Wasm>(wasm_config, toAbslStringView(vm_key), scope,
-                                       cluster_manager, dispatcher);
+          &lifecycle_notifier](std::string_view vm_key) -> proxy_wasm::BaseWasmHandleSharedPtr {
+    auto wasm_vm = createWasmVm(wasm_config.config().vm_config().runtime());
+    auto wasm = std::make_unique<Wasm>(std::move(wasm_vm), wasm_config, toAbslStringView(vm_key),
+                                       scope, cluster_manager, dispatcher);
     wasm->initializeLifecycle(lifecycle_notifier);
-    return std::static_pointer_cast<WasmHandleBase>(
-        std::make_shared<WasmHandle>(wasm_config, std::move(wasm)));
+    auto rate_limitter = getVmCreationRatelimitter(wasm_config, wasm.get());
+    return std::make_shared<proxy_wasm::BaseWasmHandle>(std::move(wasm), rate_limitter);
   };
 }
 
-static proxy_wasm::WasmHandleCloneFactory
-getWasmHandleCloneFactory(Event::Dispatcher& dispatcher,
-                          CreateContextFn create_root_context_for_testing) {
-  return [&dispatcher, create_root_context_for_testing](
-             WasmHandleBaseSharedPtr base_wasm) -> std::shared_ptr<WasmHandleBase> {
-    auto wasm = std::make_shared<Wasm>(std::static_pointer_cast<WasmHandle>(base_wasm), dispatcher);
+static proxy_wasm::ThreadLocalWasmHandleFactory
+getThreadLocalWasmHandleFactory(WasmConfig& wasm_config,
+                                CreateContextFn create_root_context_for_testing) {
+  return [&wasm_config,
+          &create_root_context_for_testing](proxy_wasm::BaseWasmHandleSharedPtr base_wasm_handle)
+             -> proxy_wasm::ThreadLocalWasmHandleSharedPtr {
+    auto wasm_vm = base_wasm_handle->cloneWasmVm([&wasm_config]() {
+      return createWasmVm(toAbslStringView(wasm_config.config().vm_config().runtime()));
+    });
+
+    auto base_wasm = static_cast<Wasm*>(base_wasm_handle->wasm());
+    auto wasm = std::make_unique<Wasm>(std::move(wasm_vm), wasm_config,
+                                       toAbslStringView(base_wasm->vmKey()), base_wasm->scope(),
+                                       base_wasm->clusterManager(), base_wasm->dispatcher());
     wasm->setCreateContextForTesting(nullptr, create_root_context_for_testing);
-    return std::static_pointer_cast<WasmHandleBase>(std::make_shared<WasmHandle>(std::move(wasm)));
+    return std::make_shared<proxy_wasm::ThreadLocalWasmHandle>(std::move(wasm), base_wasm_handle);
   };
 }
 
-static proxy_wasm::PluginHandleFactory getPluginHandleFactory() {
-  return [](WasmHandleBaseSharedPtr wasm,
-            PluginBaseSharedPtr plugin) -> std::shared_ptr<PluginHandleBase> {
-    return std::static_pointer_cast<PluginHandleBase>(std::make_shared<PluginHandle>(
-        std::static_pointer_cast<WasmHandle>(wasm), std::static_pointer_cast<Plugin>(plugin)));
-  };
-}
-
-WasmEvent toWasmEvent(const std::shared_ptr<WasmHandleBase>& wasm) {
-  if (!wasm) {
+WasmEvent toWasmEvent(const proxy_wasm::BaseWasmHandleSharedPtr& base_wasm_handle) {
+  if (!base_wasm_handle) {
     return WasmEvent::UnableToCreateVm;
   }
-  switch (wasm->wasm()->fail_state()) {
+  switch (base_wasm_handle->wasm()->failState()) {
   case FailState::Ok:
     return WasmEvent::Ok;
   case FailState::UnableToCreateVm:
@@ -378,7 +380,7 @@ bool createWasm(const PluginSharedPtr& plugin, const Stats::ScopeSharedPtr& scop
         stats_handler.onEvent(WasmEvent::RemoteLoadCacheMiss);
         ENVOY_LOG_TO_LOGGER(Envoy::Logger::Registry::getLog(Envoy::Logger::Id::wasm), warn,
                             "createWasm: failed to load (in progress) from {}", source);
-        cb(nullptr);
+        cb(std::make_shared<PluginHandleManager>(nullptr, nullptr, plugin));
       }
       code = it->second.code;
       if (code.empty()) {
@@ -387,7 +389,7 @@ bool createWasm(const PluginSharedPtr& plugin, const Stats::ScopeSharedPtr& scop
           stats_handler.onEvent(WasmEvent::RemoteLoadCacheNegativeHit);
           ENVOY_LOG_TO_LOGGER(Envoy::Logger::Registry::getLog(Envoy::Logger::Id::wasm), warn,
                               "createWasm: failed to load (cached) from {}", source);
-          cb(nullptr);
+          cb(std::make_shared<PluginHandleManager>(nullptr, nullptr, plugin));
         }
         fetch = true; // Fetch failed, retry.
         it->second.in_progress = true;
@@ -414,25 +416,27 @@ bool createWasm(const PluginSharedPtr& plugin, const Stats::ScopeSharedPtr& scop
   auto complete_cb = [cb, vm_key, plugin, scope, &cluster_manager, &dispatcher, &lifecycle_notifier,
                       create_root_context_for_testing, &stats_handler](std::string code) -> bool {
     if (code.empty()) {
-      cb(nullptr);
+      cb(std::make_shared<PluginHandleManager>(nullptr, nullptr, plugin));
       return false;
     }
 
     auto config = plugin->wasmConfig();
-    auto wasm = proxy_wasm::createWasm(
+    auto thread_local_plugin_handle_factory =
+        getThreadLocalWasmHandleFactory(config, create_root_context_for_testing);
+    proxy_wasm::BaseWasmHandleSharedPtr base_wasm_handle = proxy_wasm::createBaseWasmHandle(
         vm_key, code, plugin,
-        getWasmHandleFactory(config, scope, cluster_manager, dispatcher, lifecycle_notifier),
-        getWasmHandleCloneFactory(dispatcher, create_root_context_for_testing),
-        config.config().vm_config().allow_precompiled());
+        getBaseWasmHandleFactory(config, scope, cluster_manager, dispatcher, lifecycle_notifier),
+        thread_local_plugin_handle_factory, config.config().vm_config().allow_precompiled());
     Stats::ScopeSharedPtr create_wasm_stats_scope = stats_handler.lockAndCreateStats(scope);
-    stats_handler.onEvent(toWasmEvent(wasm));
-    if (!wasm || wasm->wasm()->isFailed()) {
+    stats_handler.onEvent(toWasmEvent(base_wasm_handle));
+    if (!base_wasm_handle || base_wasm_handle->wasm()->isFailed()) {
       ENVOY_LOG_TO_LOGGER(Envoy::Logger::Registry::getLog(Envoy::Logger::Id::wasm), trace,
                           "Unable to create Wasm");
-      cb(nullptr);
+      cb(std::make_shared<PluginHandleManager>(nullptr, nullptr, plugin));
       return false;
     }
-    cb(std::static_pointer_cast<WasmHandle>(wasm));
+    cb(std::make_shared<PluginHandleManager>(thread_local_plugin_handle_factory, base_wasm_handle,
+                                             plugin));
     return true;
   };
 
@@ -478,7 +482,7 @@ bool createWasm(const PluginSharedPtr& plugin, const Stats::ScopeSharedPtr& scop
       fetcher_ptr->fetch();
       ENVOY_LOG_TO_LOGGER(Envoy::Logger::Registry::getLog(Envoy::Logger::Id::wasm), trace,
                           fmt::format("Failed to load Wasm code (fetching) from {}", source));
-      cb(nullptr);
+      cb(std::make_shared<PluginHandleManager>(nullptr, nullptr, plugin));
       return false;
     } else {
       remote_data_provider = std::make_unique<Config::DataSource::RemoteAsyncDataProvider>(
@@ -489,53 +493,6 @@ bool createWasm(const PluginSharedPtr& plugin, const Stats::ScopeSharedPtr& scop
     return complete_cb(code);
   }
   return true;
-}
-
-bool PluginHandleManager::initializePluginHandle() {
-  if (!base_wasm_handle_) {
-    if (!plugin_->fail_open_) {
-      ENVOY_LOG_TO_LOGGER(Envoy::Logger::Registry::getLog(Envoy::Logger::Id::wasm), critical,
-                          "Plugin configured to fail closed failed to load");
-    }
-    // To handle the case when failed to create VMs and fail-open/close properly,
-    // we still create PluginHandle with null WasmHandle.
-    handle_ = std::make_shared<PluginHandle>(nullptr, plugin_);
-    return false;
-  } else {
-    handle_ = std::static_pointer_cast<PluginHandle>(proxy_wasm::getOrCreateThreadLocalPlugin(
-        std::static_pointer_cast<WasmHandle>(base_wasm_handle_), plugin_,
-        getWasmHandleCloneFactory(dispatcher_, create_root_context_for_testing_),
-        getPluginHandleFactory()));
-    return handle_->wasmHandle() != nullptr;
-  }
-}
-
-bool PluginHandleManager::tryRestartPlugin() {
-  // If the base_wasm is not created, then we have no way to restart thread-local one.
-  if (!base_wasm_handle_) {
-    return false;
-  }
-  const auto base_wasm = base_wasm_handle_->wasm();
-
-  // Check if the VM is already restarted for the vm_key.
-  const bool should_vm_restart = !proxy_wasm::getThreadLocalWasm(base_wasm->vm_key());
-  if (should_vm_restart) {
-    // This case we have to restart VM (i.e. recreate a new thread-local Wasm).
-    // So we check if the restart is not rate limited.
-    if (!base_wasm_handle_->restartAllowed()) {
-      ENVOY_LOG(error, "Could not restart Thread-local Wasm due to rate-limit");
-      // Rate-limited.
-      return false;
-    }
-  }
-
-  // Now restart the thread-local plugin.
-  const auto result = initializePluginHandle();
-  if (result && should_vm_restart) {
-    ENVOY_LOG(error, "Thread-local Wasm restarted");
-    base_wasm->lifecycleStatsHandler().onEvent(WasmEvent::VmRestart);
-  }
-  return result;
 }
 
 } // namespace Wasm

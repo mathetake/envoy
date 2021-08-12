@@ -16,10 +16,11 @@ namespace NetworkFilters {
 namespace Wasm {
 
 using Envoy::Extensions::Common::Wasm::Context;
+using Envoy::Extensions::Common::Wasm::ContextSharedPtr;
 using Envoy::Extensions::Common::Wasm::PluginHandleManager;
+using Envoy::Extensions::Common::Wasm::PluginHandleManagerSharedPtr;
 using Envoy::Extensions::Common::Wasm::PluginHandleSharedPtr;
 using Envoy::Extensions::Common::Wasm::PluginSharedPtr;
-using Envoy::Extensions::Common::Wasm::Wasm;
 
 class FilterConfig : Logger::Loggable<Logger::Id::wasm> {
 public:
@@ -27,31 +28,22 @@ public:
                Server::Configuration::FactoryContext& context);
 
   std::shared_ptr<Context> createFilter() {
-    Wasm* wasm = nullptr;
-    PluginHandleSharedPtr handle = tls_slot_->get()->handle();
-    if (handle->wasmHandle()) {
-      wasm = handle->wasmHandle()->wasm().get();
-      if (wasm->isFailed()) {
-        // Try to restart.
-        if (tls_slot_->get()->tryRestartPlugin()) {
-          handle = tls_slot_->get()->handle();
-          wasm = handle->wasmHandle()->wasm().get();
-        }
-      }
+    // Note pluginHandle() returns always non-null.
+    auto handle_manager = tls_slot_->get();
+    if (handle_manager->pluginHandle()->isHealthy()) {
+      return handle_manager->createContextFromHandle();
+    } else if (handle_manager->tryRestartPlugin()) {
+      // Restart succeeded.
+      return handle_manager->createContextFromHandle();
     }
-    if (!wasm || wasm->isFailed()) {
-      if (handle->plugin()->fail_open_) {
-        // Fail open skips adding this filter to callbacks.
-        return nullptr;
-      } else {
-        // Fail closed is handled by an empty Context.
-        return std::make_shared<Context>(nullptr, 0, handle);
-      }
-    }
-    return std::make_shared<Context>(wasm, handle->rootContextId(), handle);
-  }
 
-  Wasm* wasmForTest() { return tls_slot_->get()->handle()->wasmHandle()->wasm().get(); }
+    if (handle_manager->pluginHandle()->plugin()->fail_open_) {
+      return nullptr;
+    } else {
+      // Fail closed is handled by an empty Context.
+      return std::make_shared<Context>(nullptr, 0, handle_manager->pluginHandle());
+    }
+  }
 
 private:
   ThreadLocal::TypedSlotPtr<PluginHandleManager> tls_slot_;

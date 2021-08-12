@@ -107,19 +107,19 @@ TEST_P(WasmCommonTest, WasmFailState) {
   auto wasm = std::make_shared<WasmHandle>(
       std::make_unique<Wasm>(plugin->wasmConfig(), "", scope, cluster_manager, *dispatcher));
   auto wasm_base = std::dynamic_pointer_cast<proxy_wasm::WasmHandleBase>(wasm);
-  wasm->wasm()->setFailStateForTesting(proxy_wasm::FailState::UnableToCreateVm);
+  wasm->wasm()->setFailState(proxy_wasm::FailState::UnableToCreateVm);
   EXPECT_EQ(toWasmEvent(wasm_base), WasmEvent::UnableToCreateVm);
-  wasm->wasm()->setFailStateForTesting(proxy_wasm::FailState::UnableToCloneVm);
+  wasm->wasm()->setFailState(proxy_wasm::FailState::UnableToCloneVm);
   EXPECT_EQ(toWasmEvent(wasm_base), WasmEvent::UnableToCloneVm);
-  wasm->wasm()->setFailStateForTesting(proxy_wasm::FailState::MissingFunction);
+  wasm->wasm()->setFailState(proxy_wasm::FailState::MissingFunction);
   EXPECT_EQ(toWasmEvent(wasm_base), WasmEvent::MissingFunction);
-  wasm->wasm()->setFailStateForTesting(proxy_wasm::FailState::UnableToInitializeCode);
+  wasm->wasm()->setFailState(proxy_wasm::FailState::UnableToInitializeCode);
   EXPECT_EQ(toWasmEvent(wasm_base), WasmEvent::UnableToInitializeCode);
-  wasm->wasm()->setFailStateForTesting(proxy_wasm::FailState::StartFailed);
+  wasm->wasm()->setFailState(proxy_wasm::FailState::StartFailed);
   EXPECT_EQ(toWasmEvent(wasm_base), WasmEvent::StartFailed);
-  wasm->wasm()->setFailStateForTesting(proxy_wasm::FailState::ConfigureFailed);
+  wasm->wasm()->setFailState(proxy_wasm::FailState::ConfigureFailed);
   EXPECT_EQ(toWasmEvent(wasm_base), WasmEvent::ConfigureFailed);
-  wasm->wasm()->setFailStateForTesting(proxy_wasm::FailState::RuntimeError);
+  wasm->wasm()->setFailState(proxy_wasm::FailState::RuntimeError);
   EXPECT_EQ(toWasmEvent(wasm_base), WasmEvent::RuntimeError);
 
   auto root_context = static_cast<Context*>(wasm->wasm()->createRootContext(plugin));

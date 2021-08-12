@@ -108,10 +108,10 @@ WasmResult Buffer::copyTo(WasmBase* wasm, size_t start, size_t length, uint64_t 
       return WasmResult::InvalidMemoryAccess;
     }
     const_buffer_instance_->copyOut(start, length, p);
-    if (!wasm->wasm_vm()->setWord(ptr_ptr, Word(pointer))) {
+    if (!wasm->wasmVm()->setWord(ptr_ptr, Word(pointer))) {
       return WasmResult::InvalidMemoryAccess;
     }
-    if (!wasm->wasm_vm()->setWord(size_ptr, Word(length))) {
+    if (!wasm->wasmVm()->setWord(size_ptr, Word(length))) {
       return WasmResult::InvalidMemoryAccess;
     }
     return WasmResult::Ok;
@@ -146,7 +146,7 @@ Context::Context(Wasm* wasm, const PluginSharedPtr& plugin) : ContextBase(wasm, 
   root_local_info_ = &std::static_pointer_cast<Plugin>(plugin)->localInfo();
 }
 Context::Context(Wasm* wasm, uint32_t root_context_id, PluginHandleSharedPtr plugin_handle)
-    : ContextBase(wasm, root_context_id, plugin_handle), plugin_handle_(plugin_handle) {}
+    : ContextBase(wasm, root_context_id, plugin_handle) {}
 
 Wasm* Context::wasm() const { return static_cast<Wasm*>(wasm_); }
 Plugin* Context::plugin() const { return static_cast<Plugin*>(plugin_.get()); }
@@ -563,7 +563,7 @@ Context::findValue(absl::string_view name, Protobuf::Arena* arena, bool last) co
   case PropertyToken::PLUGIN_ROOT_ID:
     return CelValue::CreateStringView(toAbslStringView(root_id()));
   case PropertyToken::PLUGIN_VM_ID:
-    return CelValue::CreateStringView(toAbslStringView(wasm()->vm_id()));
+    return CelValue::CreateStringView(toAbslStringView(wasm()->vmId()));
   case PropertyToken::FILTER_STATE:
     return Protobuf::Arena::Create<Filters::Common::Expr::FilterStateWrapper>(arena,
                                                                               info->filterState())
@@ -852,7 +852,7 @@ BufferInterface* Context::getBuffer(WasmBufferType type) {
     // Set before the call.
     return &buffer_;
   case WasmBufferType::VmConfiguration:
-    return buffer_.set(wasm()->vm_configuration());
+    return buffer_.set(wasm()->vmConfiguration());
   case WasmBufferType::PluginConfiguration:
     if (temp_plugin_) {
       return buffer_.set(temp_plugin_->plugin_configuration_);
@@ -1259,7 +1259,7 @@ std::string_view Context::getConfiguration() {
   if (temp_plugin_) {
     return temp_plugin_->plugin_configuration_;
   } else {
-    return wasm()->vm_configuration();
+    return wasm()->vmConfiguration();
   }
 };
 

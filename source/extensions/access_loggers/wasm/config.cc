@@ -15,6 +15,7 @@ namespace AccessLoggers {
 namespace Wasm {
 
 using Common::Wasm::PluginHandleManager;
+using Common::Wasm::PluginHandleManagerSharedPtr;
 
 AccessLog::InstanceSharedPtr WasmAccessLogFactory::createAccessLogInstance(
     const Protobuf::Message& proto_config, AccessLog::FilterPtr&& filter,
@@ -29,12 +30,10 @@ AccessLog::InstanceSharedPtr WasmAccessLogFactory::createAccessLogInstance(
 
   auto access_log = std::make_shared<WasmAccessLog>(plugin, nullptr, std::move(filter));
 
-  auto callback = [access_log, &context, plugin](Common::Wasm::WasmHandleSharedPtr base_wasm) {
-    // NB: the Slot set() call doesn't complete inline, so all arguments must outlive this call.
+  auto callback = [access_log, &context,
+                   plugin](PluginHandleManagerSharedPtr plugin_handle_manager) {
     auto tls_slot = ThreadLocal::TypedSlot<PluginHandleManager>::makeUnique(context.threadLocal());
-    tls_slot->set([base_wasm, plugin](Event::Dispatcher& dispatcher) {
-      return std::make_shared<Common::Wasm::PluginHandleManager>(base_wasm, plugin, dispatcher);
-    });
+    tls_slot->set([plugin_handle_manager](Event::Dispatcher&) { return plugin_handle_manager; });
     access_log->setTlsSlot(std::move(tls_slot));
   };
 

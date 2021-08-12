@@ -101,6 +101,8 @@ protected:
   LifecycleStats lifecycle_stats_;
 };
 
+using LifecycleStatsHandlerSharedPtr = std::shared_ptr<LifecycleStatsHandler>;
+
 } // namespace Wasm
 } // namespace Common
 } // namespace Extensions

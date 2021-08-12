@@ -32,19 +32,15 @@ public:
       }
     }
 
-    Wasm* wasm = nullptr;
-    auto handle = tls_slot_->get()->handle();
-    if (handle->wasmHandle()) {
-      wasm = handle->wasmHandle()->wasm().get();
-      if (wasm->isFailed()) {
-        // Try to restart.
-        if (tls_slot_->get()->tryRestartPlugin()) {
-          handle = tls_slot_->get()->handle();
-          wasm = handle->wasmHandle()->wasm().get();
-        }
-      }
+    auto handle_manager = tls_slot_->get();
+    auto healthy = handle_manager->pluginHandle()->isHealthy();
+    if (!healthy) {
+      // Try restarting plugin.
+      healthy = handle_manager->tryRestartPlugin();
     }
-    if (wasm && !wasm->isFailed()) {
+    if (healthy) {
+      auto wasm =
+          static_cast<Wasm*>(handle_manager->pluginHandle()->threadLocalWasmHandle()->wasm());
       wasm->log(plugin_, request_headers, response_headers, response_trailers, stream_info);
     }
   }

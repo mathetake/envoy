@@ -27,17 +27,8 @@ WasmSinkFactory::createStatsSink(const Protobuf::Message& proto_config,
 
   auto wasm_sink = std::make_unique<WasmStatSink>(plugin, nullptr);
 
-  auto callback = [&wasm_sink, &context, plugin](Common::Wasm::WasmHandleSharedPtr base_wasm) {
-    if (!base_wasm) {
-      if (plugin->fail_open_) {
-        ENVOY_LOG(error, "Unable to create Wasm Stat Sink {}", plugin->name_);
-      } else {
-        ENVOY_LOG(critical, "Unable to create Wasm Stat Sink {}", plugin->name_);
-      }
-      return;
-    }
-    wasm_sink->setSingleton(std::make_shared<Common::Wasm::PluginHandleManager>(
-        base_wasm, plugin, context.dispatcher()));
+  auto callback = [&wasm_sink, plugin](PluginHandleManagerSharedPtr plugin_handle_manager) {
+    wasm_sink->setSingleton(plugin_handle_manager);
   };
 
   if (!Common::Wasm::createWasm(plugin, context.scope().createScope(""), context.clusterManager(),
