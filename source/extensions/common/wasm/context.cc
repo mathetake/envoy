@@ -30,6 +30,7 @@
 #include "source/extensions/common/wasm/plugin.h"
 #include "source/extensions/common/wasm/wasm.h"
 #include "source/extensions/filters/common/expr/context.h"
+#include "source/server/admin/prometheus_stats.h"
 
 #include "absl/base/casts.h"
 #include "absl/container/flat_hash_map.h"
@@ -1233,6 +1234,14 @@ WasmResult Context::defineMetric(uint32_t metric_type, std::string_view name,
   if (metric_type > static_cast<uint32_t>(MetricType::Max)) {
     return WasmResult::BadArgument;
   }
+  // Automatically register prometheus namspace.
+  auto str = toAbslStringView(name);
+  auto prom_namespace = str.substr(0, str.find_first_of("_"));
+  // TODO: Check and reject if the namespace does overwrap with a prefix of native Envoy metrices
+  // e.g. "cluster_" or "upstream". Otherwise these native metrics are exposed in the prometheus
+  // endpoint without having "envoy_" prefix.
+  Server::PrometheusStatsFormatter::registerPrometheusNamespace(prom_namespace);
+
   auto type = static_cast<MetricType>(metric_type);
   // TODO: Consider rethinking the scoping policy as it does not help in this case.
   Stats::StatNameManagedStorage storage(toAbslStringView(name), wasm()->scope_->symbolTable());
