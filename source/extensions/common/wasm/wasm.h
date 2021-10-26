@@ -41,7 +41,8 @@ class WasmHandle;
 class Wasm : public WasmBase, Logger::Loggable<Logger::Id::wasm> {
 public:
   Wasm(WasmConfig& config, absl::string_view vm_key, const Stats::ScopeSharedPtr& scope,
-       Api::Api& api, Upstream::ClusterManager& cluster_manager, Event::Dispatcher& dispatcher);
+       Api::Api& api, Upstream::ClusterManager& cluster_manager, Event::Dispatcher& dispatcher,
+       ThreadLocal::Instance& thread_local_instance);
   Wasm(std::shared_ptr<WasmHandle> other, Event::Dispatcher& dispatcher);
   ~Wasm() override;
 
@@ -104,6 +105,7 @@ protected:
   const Stats::StatName custom_stat_namespace_;
   Upstream::ClusterManager& cluster_manager_;
   Event::Dispatcher& dispatcher_;
+  ThreadLocal::Instance& thread_local_instance_;
   Event::PostCb server_shutdown_post_cb_;
   absl::flat_hash_map<uint32_t, Event::TimerPtr> timer_; // per root_id.
   TimeSource& time_source_;
@@ -170,7 +172,9 @@ using CreateWasmCallback = std::function<void(WasmHandleSharedPtr)>;
 // because that is the mechanism for reporting configuration errors.
 bool createWasm(const PluginSharedPtr& plugin, const Stats::ScopeSharedPtr& scope,
                 Upstream::ClusterManager& cluster_manager, Init::Manager& init_manager,
-                Event::Dispatcher& dispatcher, Api::Api& api,
+                Event::Dispatcher& dispatcher,
+                ThreadLocal::Instance& thread_local_instance,
+                Api::Api& api,
                 Envoy::Server::ServerLifecycleNotifier& lifecycle_notifier,
                 Config::DataSource::RemoteAsyncDataProviderPtr& remote_data_provider,
                 CreateWasmCallback&& callback,

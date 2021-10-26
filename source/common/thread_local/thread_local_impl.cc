@@ -145,16 +145,21 @@ void InstanceImpl::removeSlot(uint32_t slot) {
   });
 }
 
-void InstanceImpl::runOnAllThreads(Event::PostCb cb) {
-  ASSERT(Thread::MainThread::isMainOrTestThread());
+void InstanceImpl::runOnAllThreads(Event::PostCb cb) const {
   ASSERT(!shutdown_);
 
   for (Event::Dispatcher& dispatcher : registered_threads_) {
     dispatcher.post(cb);
   }
 
-  // Handle main thread.
-  cb();
+  if (Thread::MainThread::isMainOrTestThread()) {
+    // Invoke immediately if this is the main thread
+    // in order to keep the existing behavior.
+    cb();
+  } else {
+    ASSERT(main_thread_dispatcher_ != nullptr);
+    main_thread_dispatcher_->post(cb);
+  }
 }
 
 void InstanceImpl::runOnAllThreads(Event::PostCb cb, Event::PostCb all_threads_complete_cb) {

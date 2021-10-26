@@ -28,6 +28,7 @@ public:
   void shutdownThread() override;
   Event::Dispatcher& dispatcher() override;
   bool isShutdown() const override { return shutdown_; }
+  void runOnAllThreads(Event::PostCb cb) const override;
 
 private:
   // On destruction returns the slot index to the deferred delete queue (detaches it). This allows
@@ -71,7 +72,6 @@ private:
   };
 
   void removeSlot(uint32_t slot);
-  void runOnAllThreads(Event::PostCb cb);
   void runOnAllThreads(Event::PostCb cb, Event::PostCb main_callback);
   static void setThreadLocal(uint32_t index, ThreadLocalObjectSharedPtr object);
 

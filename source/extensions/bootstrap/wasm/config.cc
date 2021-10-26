@@ -50,8 +50,8 @@ void WasmServiceExtension::createWasm(Server::Configuration::ServerFactoryContex
 
   if (!Common::Wasm::createWasm(plugin, context.scope().createScope(""), context.clusterManager(),
                                 context.initManager(), context.mainThreadDispatcher(),
-                                context.api(), context.lifecycleNotifier(), remote_data_provider_,
-                                std::move(callback))) {
+                                context.threadLocal(), context.api(), context.lifecycleNotifier(),
+                                remote_data_provider_, std::move(callback))) {
     // NB: throw if we get a synchronous configuration failures as this is how such failures are
     // reported to xDS.
     throw Common::Wasm::WasmException(
