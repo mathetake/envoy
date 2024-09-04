@@ -1465,9 +1465,9 @@ REPOSITORY_LOCATIONS_SPEC = dict(
         project_name = "Bazel rust rules",
         project_desc = "Bazel rust rules (used by Wasm)",
         project_url = "https://github.com/bazelbuild/rules_rust",
-        version = "0.35.0",
+        version = "0.42.0",
         strip_prefix = "rules_rust-{version}",
-        sha256 = "3120c7aa3a146dfe6be8d5f23f4cf10af7d0f74a5aed8b94a818f88643bd24c3",
+        sha256 = "187b19d3ffbc8dd1ce3d655940c0fb96c29ae3b884ba788035e0db8bd967e487",
         urls = ["https://github.com/bazelbuild/rules_rust/archive/{version}.tar.gz"],
         use_category = [
             "controlplane",
