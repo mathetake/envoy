@@ -9,6 +9,9 @@ repository = "https://github.com/envoyproxy/envoy"
 
 [dependencies]
 
+[dev-dependencies]
+mockall = "0.13.1"
+
 [build-dependencies]
 bindgen = "0.70.1"
 
