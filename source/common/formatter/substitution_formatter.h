@@ -151,23 +151,21 @@ public:
       // First, try the built-in command parsers.
       for (const auto& cmd :
            BuiltInCommandParserFactoryHelper<FormatterContext>::commandParsers()) {
-        auto formatter = cmd->parse(command, command_arg, max_len);
-        if (formatter) {
-          formatters.push_back(std::move(formatter));
-          added = true;
-          break;
-        }
+        auto formatter_or = cmd->parse(command, command_arg, max_len);
+        RETURN_IF_NOT_OK_REF(formatter_or.status());
+        formatters.push_back(std::move(formatter_or.value()));
+        added = true;
+        break;
       }
 
       // Next, try the command parsers provided by the user.
       if (!added) {
         for (const auto& cmd : command_parsers) {
-          auto formatter = cmd->parse(command, command_arg, max_len);
-          if (formatter) {
-            formatters.push_back(std::move(formatter));
-            added = true;
-            break;
-          }
+          auto formatter_or = cmd->parse(command, command_arg, max_len);
+          RETURN_IF_NOT_OK_REF(formatter_or.status());
+          formatters.push_back(std::move(formatter_or.value()));
+          added = true;
+          break;
         }
       }
 
@@ -175,12 +173,11 @@ public:
       if (!added) {
         for (const auto& cmd : BuiltInStreamInfoCommandParserFactoryHelper::commandParsers()) {
           auto formatter = cmd->parse(command, command_arg, max_len);
-          if (formatter) {
-            formatters.push_back(std::make_unique<StreamInfoFormatterWrapper<FormatterContext>>(
-                std::move(formatter)));
-            added = true;
-            break;
-          }
+          RETURN_IF_NOT_OK_REF(formatter.status());
+          formatters.push_back(std::make_unique<StreamInfoFormatterWrapper<FormatterContext>>(
+              std::move(formatter.value())));
+          added = true;
+          break;
         }
       }
 
@@ -402,19 +399,14 @@ public:
   using Formatter = FormatterProviderBasePtr<FormatterContext>;
   using Formatters = std::vector<Formatter>;
 
-  JsonFormatterImplBase(const ProtobufWkt::Struct& struct_format, bool omit_empty_values,
-                        const CommandParsers& commands = {})
-      : omit_empty_values_(omit_empty_values) {
-    for (JsonFormatBuilder::FormatElement& element :
-         JsonFormatBuilder().fromStruct(struct_format)) {
-      if (element.is_template_) {
-        parsed_elements_.emplace_back(THROW_OR_RETURN_VALUE(
-            SubstitutionFormatParser::parse<FormatterContext>(element.value_, commands),
-            std::vector<FormatterProviderBasePtr<FormatterContext>>));
-      } else {
-        parsed_elements_.emplace_back(std::move(element.value_));
-      }
-    }
+ static absl::StatusOr<std::unique_ptr<JsonFormatterImplBase>>
+  create(const ProtobufWkt::Struct& struct_format, bool omit_empty_values,
+         const CommandParsers& commands = {}) {
+    absl::Status creation_status = absl::OkStatus();
+    auto ret = std::unique_ptr<JsonFormatterImplBase>(
+        new JsonFormatterImplBase(struct_format, omit_empty_values, commands, creation_status));
+    RETURN_IF_NOT_OK_REF(creation_status);
+    return std::move(ret);
   }
 
   std::string formatWithContext(const FormatterContext& context,
@@ -452,6 +444,22 @@ public:
   }
 
 private:
+  JsonFormatterImplBase(const ProtobufWkt::Struct& struct_format, bool omit_empty_values,
+                        const CommandParsers& commands, absl::Status& creation_status)
+      : omit_empty_values_(omit_empty_values) {
+    for (JsonFormatBuilder::FormatElement& element :
+         JsonFormatBuilder().fromStruct(struct_format)) {
+      if (element.is_template_) {
+        auto parser_or =
+            SubstitutionFormatParser::parse<FormatterContext>(element.value_, commands);
+        SET_AND_RETURN_IF_NOT_OK(parser_or.status(), creation_status);
+        parsed_elements_.emplace_back(std::move(parser_or.value()));
+      } else {
+        parsed_elements_.emplace_back(std::move(element.value_));
+      }
+    }
+  }
+
   void stringValueToLogLine(const Formatters& formatters, const FormatterContext& context,
                             const StreamInfo::StreamInfo& info,
                             JsonStringSerializer& serializer) const {
@@ -494,10 +502,15 @@ public:
   using PlainNumber = PlainNumberFormatterBase<FormatterContext>;
   using PlainString = PlainStringFormatterBase<FormatterContext>;
 
-  StructFormatterBase(const ProtobufWkt::Struct& format_mapping, bool preserve_types,
-                      bool omit_empty_values, const CommandParsers& commands = {})
-      : omit_empty_values_(omit_empty_values), preserve_types_(preserve_types),
-        struct_output_format_(FormatBuilder(commands).toFormatMapValue(format_mapping)) {}
+  static absl::StatusOr<std::unique_ptr<StructFormatterBase>>
+  create(const ProtobufWkt::Struct& format_mapping, bool preserve_types, bool omit_empty_values,
+         const CommandParsers& commands = {}) {
+    absl::Status creation_status = absl::OkStatus();
+    auto ret = std::make_unique<StructFormatterBase>(format_mapping, preserve_types,
+                                                     omit_empty_values, commands, creation_status);
+    RETURN_IF_NOT_OK_REF(creation_status);
+    return std::move(ret);
+  }
 
   ProtobufWkt::Struct formatWithContext(const FormatterContext& context,
                                         const StreamInfo::StreamInfo& info) const {
@@ -516,6 +529,14 @@ public:
   }
 
 private:
+  StructFormatterBase(const ProtobufWkt::Struct& format_mapping, bool preserve_types,
+                      bool omit_empty_values, const CommandParsers& commands, absl::Status& status)
+      : omit_empty_values_(omit_empty_values), preserve_types_(preserve_types) {
+    auto value_or = FormatBuilder(commands).toFormatMapValue(format_mapping);
+    SET_AND_RETURN_IF_NOT_OK(value_or.status(), status);
+    struct_output_format_ = std::move(value_or.value());
+  }
+  
   struct StructFormatMapWrapper;
   struct StructFormatListWrapper;
   using StructFormatValue =
@@ -555,19 +576,23 @@ private:
       formatters.emplace_back(FormatterProviderBasePtr<FormatterContext>{new PlainNumber(value)});
       return formatters;
     }
-    StructFormatMapWrapper toFormatMapValue(const ProtobufWkt::Struct& struct_format) const {
+    absl::StatusOr<StructFormatMapWrapper> toFormatMapValue(const ProtobufWkt::Struct& struct_format) const {
       auto output = std::make_unique<StructFormatMap>();
       for (const auto& pair : struct_format.fields()) {
         switch (pair.second.kind_case()) {
-        case ProtobufWkt::Value::kStringValue:
-          output->emplace(pair.first, THROW_OR_RETURN_VALUE(
-                                          toFormatStringValue(pair.second.string_value()),
-                                          std::vector<FormatterProviderBasePtr<FormatterContext>>));
+        case ProtobufWkt::Value::kStringValue: {
+          auto value_or = toFormatStringValue(pair.second.string_value());
+          RETURN_IF_NOT_OK(value_or.status());
+          output->emplace(pair.first, value_or);
           break;
+        }
 
-        case ProtobufWkt::Value::kStructValue:
-          output->emplace(pair.first, toFormatMapValue(pair.second.struct_value()));
+        case ProtobufWkt::Value::kStructValue: {
+          auto value_or = toFormatMapValue(pair.second.struct_value());
+          RETURN_IF_NOT_OK(value_or.status());
+          output->emplace(pair.first, value_or.value());
           break;
+        }
 
         case ProtobufWkt::Value::kListValue:
           output->emplace(pair.first, toFormatListValue(pair.second.list_value()));
@@ -577,23 +602,24 @@ private:
           output->emplace(pair.first, toFormatNumberValue(pair.second.number_value()));
           break;
         default:
-          throw EnvoyException(
+          return absl::InvalidArgumentError(
               "Only string values, nested structs, list values and number values are "
               "supported in structured access log format.");
         }
       }
-      return {std::move(output)};
+      return StructFormatMapWrapper{std::move(output)};
     }
-    StructFormatListWrapper
+    absl::StatusOr<StructFormatListWrapper>
     toFormatListValue(const ProtobufWkt::ListValue& list_value_format) const {
       auto output = std::make_unique<StructFormatList>();
       for (const auto& value : list_value_format.values()) {
         switch (value.kind_case()) {
-        case ProtobufWkt::Value::kStringValue:
-          output->emplace_back(
-              THROW_OR_RETURN_VALUE(toFormatStringValue(value.string_value()),
-                                    std::vector<FormatterProviderBasePtr<FormatterContext>>));
+        case ProtobufWkt::Value::kStringValue: {
+          auto value_or = toFormatStringValue(value.string_value());
+          RETURN_IF_NOT_OK(value_or.status());
+          output->emplace_back(value_or.value());
           break;
+        }
 
         case ProtobufWkt::Value::kStructValue:
           output->emplace_back(toFormatMapValue(value.struct_value()));
@@ -608,12 +634,12 @@ private:
           break;
 
         default:
-          throw EnvoyException(
+          return absl::InvalidArgumentError(
               "Only string values, nested structs, list values and number values are "
               "supported in structured access log format.");
         }
       }
-      return {std::move(output)};
+      return StructFormatListWrapper{std::move(output)};
     }
 
   private:
@@ -704,16 +730,22 @@ class LegacyJsonFormatterBaseImpl : public FormatterBase<FormatterContext> {
 public:
   using CommandParsers = std::vector<CommandParserBasePtr<FormatterContext>>;
 
-  LegacyJsonFormatterBaseImpl(const ProtobufWkt::Struct& format_mapping, bool preserve_types,
-                              bool omit_empty_values, bool sort_properties,
-                              const CommandParsers& commands = {})
-      : struct_formatter_(format_mapping, preserve_types, omit_empty_values, commands),
-        sort_properties_(sort_properties) {}
+ static absl::StatusOr<std::unique_ptr<LegacyJsonFormatterBaseImpl>> create(
+      const ProtobufWkt::Struct& format_mapping, bool preserve_types, bool omit_empty_values,
+      bool sort_properties, const CommandParsers& commands) {
+    absl::Status creation_status = absl::OkStatus();
+    auto ret = std::unique_ptr<LegacyJsonFormatterBaseImpl>(
+        new LegacyJsonFormatterBaseImpl(format_mapping, preserve_types, omit_empty_values,
+                                        sort_properties, commands, creation_status));
+    RETURN_IF_NOT_OK_REF(creation_status);
+    return std::move(ret);
+  };
 
   // FormatterBase
   std::string formatWithContext(const FormatterContext& context,
                                 const StreamInfo::StreamInfo& info) const override {
-    const ProtobufWkt::Struct output_struct = struct_formatter_.formatWithContext(context, info);
+    const ProtobufWkt::Struct output_struct =
+        struct_formatter_->formatWithContext(context, info);
 
     std::string log_line = "";
 #ifdef ENVOY_ENABLE_YAML
@@ -730,7 +762,17 @@ public:
   }
 
 private:
-  const StructFormatterBase<FormatterContext> struct_formatter_;
+  LegacyJsonFormatterBaseImpl(const ProtobufWkt::Struct& format_mapping, bool preserve_types,
+                              bool omit_empty_values, bool sort_properties,
+                              const CommandParsers& commands, absl::Status& status)
+      : sort_properties_(sort_properties) {
+    auto struct_formatter_or = StructFormatterBase<HttpFormatterContext>::create(
+        format_mapping, preserve_types, omit_empty_values, commands);
+    SET_AND_RETURN_IF_NOT_OK(struct_formatter_or.status(), status);
+    struct_formatter_ = std::move(struct_formatter_or.value());
+  }
+
+  const std::unique_ptr<StructFormatterBase<FormatterContext>> struct_formatter_ = nullptr;
   const bool sort_properties_;
 };
 

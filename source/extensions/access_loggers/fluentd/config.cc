@@ -64,11 +64,15 @@ FluentdAccessLogFactory::createAccessLogInstance(const Protobuf::Message& config
       Formatter::SubstitutionFormatStringUtils::parseFormatters(proto_config.formatters(), context),
       std::vector<Formatter::CommandParserBasePtr<Formatter::HttpFormatterContext>>);
 
-  Formatter::FormatterPtr json_formatter =
+  absl::StatusOr<Formatter::FormatterPtr> json_formatter =
       Formatter::SubstitutionFormatStringUtils::createJsonFormatter(proto_config.record(), true,
                                                                     false, false, commands);
+  if (!json_formatter.ok()) {
+    throw EnvoyException(
+        fmt::format("Failed to create JSON formatter: {}", json_formatter.status()));
+  }
   FluentdFormatterPtr fluentd_formatter =
-      std::make_unique<FluentdFormatterImpl>(std::move(json_formatter));
+      std::make_unique<FluentdFormatterImpl>(std::move(json_formatter.value()));
 
   return std::make_shared<FluentdAccessLog>(
       std::move(filter), std::move(fluentd_formatter),

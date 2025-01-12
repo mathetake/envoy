@@ -19,8 +19,9 @@
 namespace Envoy {
 namespace Formatter {
 
+using StatusOrStreamInfoFormatterProviderPtr = absl::StatusOr<StreamInfoFormatterProviderPtr>;
 using StreamInfoFormatterProviderCreateFunc =
-    std::function<StreamInfoFormatterProviderPtr(absl::string_view, absl::optional<size_t>)>;
+    std::function<StatusOrStreamInfoFormatterProviderPtr(absl::string_view, absl::optional<size_t>)>;
 
 enum class DurationPrecision { Milliseconds, Microseconds, Nanoseconds };
 
@@ -89,7 +90,7 @@ enum class FilterStateFormat { String, Proto, Field };
  */
 class FilterStateFormatter : public StreamInfoFormatterProvider {
 public:
-  static std::unique_ptr<FilterStateFormatter>
+  static absl::StatusOr<std::unique_ptr<FilterStateFormatter>>
   create(absl::string_view format, absl::optional<size_t> max_length, bool is_upstream);
 
   FilterStateFormatter(absl::string_view key, absl::optional<size_t> max_length,
@@ -117,7 +118,7 @@ public:
   using TimePointGetter =
       std::function<absl::optional<MonotonicTime>(const StreamInfo::StreamInfo&)>;
 
-  static std::unique_ptr<CommonDurationFormatter> create(absl::string_view sub_command);
+  static absl::StatusOr<std::unique_ptr<CommonDurationFormatter>> create(absl::string_view sub_command);
 
   CommonDurationFormatter(TimePointGetter beg, TimePointGetter end,
                           DurationPrecision duration_precision)
@@ -176,7 +177,7 @@ public:
       std::function<absl::optional<SystemTime>(const StreamInfo::StreamInfo& stream_info)>;
   using TimeFieldExtractorPtr = std::unique_ptr<TimeFieldExtractor>;
 
-  SystemTimeFormatter(absl::string_view format, TimeFieldExtractorPtr f, bool local_time = false);
+  SystemTimeFormatter(absl::string_view format, TimeFieldExtractorPtr f, bool local_time, absl::Status& creation_status);
 
   // StreamInfoFormatterProvider
   absl::optional<std::string> format(const StreamInfo::StreamInfo&) const override;
@@ -194,7 +195,7 @@ private:
  */
 class StartTimeFormatter : public SystemTimeFormatter {
 public:
-  StartTimeFormatter(absl::string_view format);
+  StartTimeFormatter(absl::string_view format, absl::Status& creation_status);
 };
 
 /**
@@ -203,7 +204,7 @@ public:
  */
 class DownstreamPeerCertVStartFormatter : public SystemTimeFormatter {
 public:
-  DownstreamPeerCertVStartFormatter(absl::string_view format);
+  DownstreamPeerCertVStartFormatter(absl::string_view format, absl::Status& creation_status);
 };
 
 /**
@@ -212,7 +213,7 @@ public:
  */
 class DownstreamPeerCertVEndFormatter : public SystemTimeFormatter {
 public:
-  DownstreamPeerCertVEndFormatter(absl::string_view format);
+  DownstreamPeerCertVEndFormatter(absl::string_view format, absl::Status& creation_status);
 };
 
 /**
@@ -221,7 +222,7 @@ public:
  */
 class UpstreamPeerCertVStartFormatter : public SystemTimeFormatter {
 public:
-  UpstreamPeerCertVStartFormatter(absl::string_view format);
+  UpstreamPeerCertVStartFormatter(absl::string_view format, absl::Status& creation_status);
 };
 
 /**
@@ -230,7 +231,7 @@ public:
  */
 class UpstreamPeerCertVEndFormatter : public SystemTimeFormatter {
 public:
-  UpstreamPeerCertVEndFormatter(absl::string_view format);
+  UpstreamPeerCertVEndFormatter(absl::string_view format, absl::Status& creation_status);
 };
 
 /**

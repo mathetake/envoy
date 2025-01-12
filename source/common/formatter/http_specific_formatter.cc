@@ -182,7 +182,7 @@ TraceIDFormatter::formatWithContext(const HttpFormatterContext& context,
   return trace_id;
 }
 
-GrpcStatusFormatter::Format GrpcStatusFormatter::parseFormat(absl::string_view format) {
+absl::StatusOr<GrpcStatusFormatter::Format> GrpcStatusFormatter::parseFormat(absl::string_view format) {
   if (format.empty() || format == "CAMEL_STRING") {
     return GrpcStatusFormatter::CamelString;
   }
@@ -194,7 +194,8 @@ GrpcStatusFormatter::Format GrpcStatusFormatter::parseFormat(absl::string_view f
     return GrpcStatusFormatter::Number;
   }
 
-  throw EnvoyException("GrpcStatusFormatter only supports CAMEL_STRING, SNAKE_STRING or NUMBER.");
+  return absl::InvalidArgumentError(
+      "GrpcStatusFormatter only supports CAMEL_STRING, SNAKE_STRING or NUMBER.");
 }
 
 GrpcStatusFormatter::GrpcStatusFormatter(const std::string& main_header,
@@ -294,25 +295,31 @@ BuiltInHttpCommandParser::getKnownFormatters() {
         {CommandSyntaxChecker::PARAMS_REQUIRED | CommandSyntaxChecker::LENGTH_ALLOWED,
          [](absl::string_view format, absl::optional<size_t> max_length) {
            auto result = SubstitutionFormatUtils::parseSubcommandHeaders(format);
-           THROW_IF_NOT_OK_REF(result.status());
-           return std::make_unique<RequestHeaderFormatter>(result.value().first,
-                                                           result.value().second, max_length);
+           if (!result.ok()) {
+             return StatusOrFormatterProviderPtr(result.status());
+           }
+           return StatusOrFormatterProviderPtr(std::make_unique<RequestHeaderFormatter>(
+               result.value().first, result.value().second, max_length));
          }}},
        {"RESP",
         {CommandSyntaxChecker::PARAMS_REQUIRED | CommandSyntaxChecker::LENGTH_ALLOWED,
          [](absl::string_view format, absl::optional<size_t> max_length) {
            auto result = SubstitutionFormatUtils::parseSubcommandHeaders(format);
-           THROW_IF_NOT_OK_REF(result.status());
-           return std::make_unique<ResponseHeaderFormatter>(result.value().first,
-                                                            result.value().second, max_length);
+           if (!result.ok()) {
+             return StatusOrFormatterProviderPtr(result.status());
+           }
+           return StatusOrFormatterProviderPtr(std::make_unique<ResponseHeaderFormatter>(
+               result.value().first, result.value().second, max_length));
          }}},
        {"TRAILER",
         {CommandSyntaxChecker::PARAMS_REQUIRED | CommandSyntaxChecker::LENGTH_ALLOWED,
          [](absl::string_view format, absl::optional<size_t> max_length) {
            auto result = SubstitutionFormatUtils::parseSubcommandHeaders(format);
-           THROW_IF_NOT_OK_REF(result.status());
-           return std::make_unique<ResponseTrailerFormatter>(result.value().first,
-                                                             result.value().second, max_length);
+           if (!result.ok()) {
+             return StatusOrFormatterProviderPtr(result.status());
+           }
+           return StatusOrFormatterProviderPtr(std::make_unique<ResponseTrailerFormatter>(result.value().first,
+                                                             result.value().second, max_length));
          }}},
        {"LOCAL_REPLY_BODY",
         {CommandSyntaxChecker::COMMAND_ONLY,
@@ -327,8 +334,12 @@ BuiltInHttpCommandParser::getKnownFormatters() {
        {"GRPC_STATUS",
         {CommandSyntaxChecker::PARAMS_OPTIONAL,
          [](absl::string_view format, absl::optional<size_t>) {
-           return std::make_unique<GrpcStatusFormatter>("grpc-status", "", absl::optional<size_t>(),
-                                                        GrpcStatusFormatter::parseFormat(format));
+           auto result = GrpcStatusFormatter::parseFormat(format);
+           if (!result.ok()) {
+             return StatusOrFormatterProviderPtr(result.status());
+           }
+           return StatusOrFormatterProviderPtr(std::make_unique<GrpcStatusFormatter>(
+               "grpc-status", "", absl::optional<size_t>(), result.value()));
          }}},
        {"GRPC_STATUS_NUMBER",
         {CommandSyntaxChecker::COMMAND_ONLY,
@@ -358,9 +369,11 @@ BuiltInHttpCommandParser::getKnownFormatters() {
         {CommandSyntaxChecker::PARAMS_REQUIRED | CommandSyntaxChecker::LENGTH_ALLOWED,
          [](absl::string_view format, absl::optional<size_t> max_length) {
            auto result = SubstitutionFormatUtils::parseSubcommandHeaders(format);
-           THROW_IF_NOT_OK_REF(result.status());
-           return std::make_unique<RequestHeaderFormatter>(result.value().first,
-                                                           result.value().second, max_length);
+           if (!result.ok()) {
+             return StatusOrFormatterProviderPtr(result.status());
+           }
+           return StatusOrFormatterProviderPtr(std::make_unique<RequestHeaderFormatter>(result.value().first,
+                                                           result.value().second, max_length));
          }}},
        {"TRACE_ID",
         {CommandSyntaxChecker::COMMAND_ONLY, [](absl::string_view, absl::optional<size_t>) {
@@ -368,7 +381,7 @@ BuiltInHttpCommandParser::getKnownFormatters() {
          }}}});
 }
 
-FormatterProviderPtr BuiltInHttpCommandParser::parse(absl::string_view command,
+absl::StatusOr<FormatterProviderPtr> BuiltInHttpCommandParser::parse(absl::string_view command,
                                                      absl::string_view subcommand,
                                                      absl::optional<size_t> max_length) const {
   const FormatterProviderLookupTbl& providers = getKnownFormatters();
@@ -376,11 +389,11 @@ FormatterProviderPtr BuiltInHttpCommandParser::parse(absl::string_view command,
   auto it = providers.find(command);
 
   if (it == providers.end()) {
-    return nullptr;
+    return absl::InvalidArgumentError(fmt::format("Not supported field in HTTP: {}", command));
   }
 
   // Check flags for the command.
-  THROW_IF_NOT_OK(
+  RETURN_IF_NOT_OK(
       CommandSyntaxChecker::verifySyntax((*it).second.first, command, subcommand, max_length));
 
   // Create a pointer to the formatter by calling a function

@@ -42,10 +42,16 @@ FileAccessLogFactory::createAccessLogInstance(const Protobuf::Message& config,
           Formatter::FormatterBasePtr<Formatter::HttpFormatterContext>);
     }
     break;
-  case envoy::extensions::access_loggers::file::v3::FileAccessLog::AccessLogFormatCase::kJsonFormat:
-    formatter = Formatter::SubstitutionFormatStringUtils::createJsonFormatter(
+  case envoy::extensions::access_loggers::file::v3::FileAccessLog::AccessLogFormatCase::
+      kJsonFormat: {
+    auto formatter_or = Formatter::SubstitutionFormatStringUtils::createJsonFormatter(
         fal_config.json_format(), false, false, false);
+    if (!formatter_or.ok()) {
+      throw EnvoyException("Failed to create JSON formatter");
+    }
+    formatter = std::move(formatter_or.value());
     break;
+  }
   case envoy::extensions::access_loggers::file::v3::FileAccessLog::AccessLogFormatCase::
       kTypedJsonFormat: {
     envoy::config::core::v3::SubstitutionFormatString sff_config;

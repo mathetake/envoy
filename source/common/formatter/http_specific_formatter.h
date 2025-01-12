@@ -175,7 +175,7 @@ public:
   formatValueWithContext(const HttpFormatterContext& context,
                          const StreamInfo::StreamInfo& stream_info) const override;
 
-  static Format parseFormat(absl::string_view format);
+  static absl::StatusOr<Format> parseFormat(absl::string_view format);
 
 private:
   const Format format_;
@@ -205,12 +205,13 @@ public:
   BuiltInHttpCommandParser() = default;
 
   // CommandParser
-  FormatterProviderPtr parse(absl::string_view command, absl::string_view subcommand,
+  absl::StatusOr<FormatterProviderPtr> parse(absl::string_view command, absl::string_view subcommand,
                              absl::optional<size_t> max_length) const override;
 
 private:
+  using StatusOrFormatterProviderPtr = absl::StatusOr<FormatterProviderPtr>;
   using FormatterProviderCreateFunc =
-      std::function<FormatterProviderPtr(absl::string_view, absl::optional<size_t>)>;
+      std::function<StatusOrFormatterProviderPtr(absl::string_view, absl::optional<size_t>)>;
 
   using FormatterProviderLookupTbl =
       absl::flat_hash_map<absl::string_view, std::pair<CommandSyntaxChecker::CommandSyntaxFlags,

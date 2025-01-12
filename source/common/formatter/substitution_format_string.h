@@ -90,7 +90,7 @@ public:
    * Generate a Json formatter object from proto::Struct config
    */
   template <class FormatterContext = HttpFormatterContext>
-  static FormatterBasePtr<FormatterContext>
+  static absl::StatusOr<FormatterBasePtr<FormatterContext>>
   createJsonFormatter(const ProtobufWkt::Struct& struct_format, bool preserve_types,
                       bool omit_empty_values, bool sort_properties,
                       const std::vector<CommandParserBasePtr<FormatterContext>>& commands = {}) {
@@ -100,16 +100,24 @@ public:
 #ifndef ENVOY_DISABLE_EXCEPTIONS
     if (!Runtime::runtimeFeatureEnabled(
             "envoy.reloadable_features.logging_with_fast_json_formatter")) {
-      return std::make_unique<LegacyJsonFormatterBaseImpl<FormatterContext>>(
+      auto formatter_or = LegacyJsonFormatterBaseImpl<FormatterContext>::create(
           struct_format, preserve_types, omit_empty_values, sort_properties, commands);
+      if (!formatter_or.ok()) {
+        return formatter_or.status();
+      }
+      return std::move(formatter_or.value());
     }
 #else
     UNREFERENCED_PARAMETER(preserve_types);
     UNREFERENCED_PARAMETER(sort_properties);
 #endif
 
-    return std::make_unique<JsonFormatterImplBase<FormatterContext>>(struct_format,
-                                                                     omit_empty_values, commands);
+    auto result =
+        JsonFormatterImplBase<FormatterContext>::create(struct_format, omit_empty_values, commands);
+    if (!result.ok()) {
+      return result.status();
+    }
+    return std::move(result.value());
   }
 };
 

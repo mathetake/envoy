@@ -65,16 +65,16 @@ const Http::HeaderEntry* ReqWithoutQuery::findHeader(const Http::HeaderMap& head
   return header.empty() ? nullptr : header[0];
 }
 
-::Envoy::Formatter::FormatterProviderPtr
+absl::StatusOr<Envoy::Formatter::FormatterProviderPtr>
 ReqWithoutQueryCommandParser::parse(absl::string_view command, absl::string_view subcommand,
                                     absl::optional<size_t> max_length) const {
   if (command == "REQ_WITHOUT_QUERY") {
     auto status_or = Envoy::Formatter::SubstitutionFormatUtils::parseSubcommandHeaders(subcommand);
-    THROW_IF_NOT_OK_REF(status_or.status());
+    RETURN_IF_NOT_OK(status_or.status());
     return std::make_unique<ReqWithoutQuery>(status_or.value().first, status_or.value().second,
                                              max_length);
   }
-  return nullptr;
+  return absl::InvalidArgumentError("Unknown command: " + std::string(command));
 }
 
 } // namespace Formatter

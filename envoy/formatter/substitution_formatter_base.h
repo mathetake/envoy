@@ -80,7 +80,7 @@ public:
    *
    * @return FormattterProviderPtr substitution provider for the parsed command.
    */
-  virtual FormatterProviderBasePtr<FormatterContext>
+  virtual absl::StatusOr<FormatterProviderBasePtr<FormatterContext>>
   parse(absl::string_view command, absl::string_view command_arg,
         absl::optional<size_t> max_length) const PURE;
 };

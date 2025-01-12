@@ -115,7 +115,7 @@ const auto& formatterProviderFuncTable() {
       });
 }
 
-::Envoy::Formatter::FormatterProviderPtr
+absl::StatusOr<Envoy::Formatter::FormatterProviderPtr>
 MetadataFormatterCommandParser::parse(absl::string_view command, absl::string_view subcommand,
                                       absl::optional<size_t> max_length) const {
   if (command == "METADATA") {
@@ -128,7 +128,7 @@ MetadataFormatterCommandParser::parse(absl::string_view command, absl::string_vi
 
     auto provider = formatterProviderFuncTable().find(type);
     if (provider == formatterProviderFuncTable().end()) {
-      throw EnvoyException(absl::StrCat(type, " is not supported type of metadata"));
+      return absl::InvalidArgumentError(absl::StrCat(type, " is not supported type of metadata"));
     }
 
     // Return a pointer to formatter provider.
@@ -136,7 +136,7 @@ MetadataFormatterCommandParser::parse(absl::string_view command, absl::string_vi
         Envoy::Formatter::StreamInfoFormatterWrapper<Envoy::Formatter::HttpFormatterContext>>(
         provider->second(filter_namespace, path, max_length));
   }
-  return nullptr;
+  return absl::InvalidArgumentError("Unknown command: " + std::string(command));
 }
 
 } // namespace Formatter

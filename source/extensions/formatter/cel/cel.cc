@@ -52,24 +52,24 @@ CELFormatter::formatValueWithContext(const Envoy::Formatter::HttpFormatterContex
   return ValueUtil::stringValue(result.value());
 }
 
-::Envoy::Formatter::FormatterProviderPtr
+absl::StatusOr<Envoy::Formatter::FormatterProviderPtr>
 CELFormatterCommandParser::parse(absl::string_view command, absl::string_view subcommand,
                                  absl::optional<size_t> max_length) const {
 #if defined(USE_CEL_PARSER)
   if (command == "CEL") {
     auto parse_status = google::api::expr::parser::Parse(subcommand);
     if (!parse_status.ok()) {
-      throw EnvoyException("Not able to parse filter expression: " +
-                           parse_status.status().ToString());
+      return absl::InvalidArgumentError("Not able to parse filter expression: " +
+                                        parse_status.status().ToString());
     }
 
     return std::make_unique<CELFormatter>(local_info_, expr_builder_, parse_status.value().expr(),
                                           max_length);
   }
 
-  return nullptr;
+  return absl::InvalidArgumentError("Unknown command: " + std::string(command));
 #else
-  throw EnvoyException("CEL is not available for use in this environment.");
+  return absl::InvalidArgumentError("CEL is not available for use in this environment.");
 #endif
 }
 

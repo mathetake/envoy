@@ -37,7 +37,7 @@ public:
   CELFormatterCommandParser(Server::Configuration::CommonFactoryContext& context)
       : local_info_(context.localInfo()),
         expr_builder_(Extensions::Filters::Common::Expr::getBuilder(context)){};
-  ::Envoy::Formatter::FormatterProviderPtr parse(absl::string_view command,
+  absl::StatusOr<Envoy::Formatter::FormatterProviderPtr> parse(absl::string_view command,
                                                  absl::string_view subcommand,
                                                  absl::optional<size_t> max_length) const override;
 
