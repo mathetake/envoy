@@ -33,7 +33,6 @@ public:
                                        Server::Configuration::ServerFactoryContext& context,
                                        ProtobufMessage::ValidationVisitor&) override {
     // Use the same config API, so almost all of the code is shared.
-    // auto config = // Call all the shared logic from the normal createFilterFactoryFromProtoTyped.
     absl::StatusOr<DynamicModuleHttpFilterConfigSharedPtr> ret =
         createFilterConfig(raw_config, context);
     return ret;
