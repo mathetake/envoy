@@ -1,5 +1,7 @@
 #pragma once
 
+#include "envoy/router/router.h"
+
 #include "source/extensions/dynamic_modules/abi.h"
 #include "source/extensions/dynamic_modules/dynamic_modules.h"
 
@@ -29,7 +31,7 @@ using OnHttpFilterDestroyType = decltype(&envoy_dynamic_module_on_http_filter_de
  * filter instances. This resolves and holds the symbols used for the HTTP filters.
  * Each filter instance and the factory callback holds a shared pointer to this config.
  */
-class DynamicModuleHttpFilterConfig {
+class DynamicModuleHttpFilterConfig: public Router::RouteSpecificFilterConfig {
 public:
   /**
    * Constructor for the config.
@@ -40,7 +42,7 @@ public:
                                 const absl::string_view filter_config,
                                 DynamicModulePtr dynamic_module);
 
-  ~DynamicModuleHttpFilterConfig();
+  ~DynamicModuleHttpFilterConfig() override;
 
   // The corresponding in-module configuration.
   envoy_dynamic_module_type_http_filter_config_module_ptr in_module_config_ = nullptr;

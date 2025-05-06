@@ -10,10 +10,23 @@ namespace Configuration {
 absl::StatusOr<Http::FilterFactoryCb> DynamicModuleConfigFactory::createFilterFactoryFromProtoTyped(
     const FilterConfig& raw_config, const std::string&, DualInfo,
     Server::Configuration::ServerFactoryContext& context) {
+  auto filter_config_or_error = createFilterConfig(raw_config, context);
+  RETURN_IF_NOT_OK_REF(filter_config_or_error.status());
+  return [config = filter_config_or_error.value()](Http::FilterChainFactoryCallbacks& callbacks) -> void {
+    auto filter =
+        std::make_shared<Envoy::Extensions::DynamicModules::HttpFilters::DynamicModuleHttpFilter>(
+            config);
+    filter->initializeInModuleFilter();
+    callbacks.addStreamFilter(filter);
+  };
+}
+
+absl::StatusOr<DynamicModuleHttpFilterConfigSharedPtr>
+DynamicModuleConfigFactory::createFilterConfig(const FilterConfig& raw_config,
+                   Server::Configuration::ServerFactoryContext& context) {
 
   const auto proto_config = Envoy::MessageUtil::downcastAndValidate<const FilterConfig&>(
       raw_config, context.messageValidationVisitor());
-
   const auto& module_config = proto_config.dynamic_module_config();
   auto dynamic_module = Extensions::DynamicModules::newDynamicModuleByName(
       module_config.name(), module_config.do_not_close());
@@ -21,7 +34,6 @@ absl::StatusOr<Http::FilterFactoryCb> DynamicModuleConfigFactory::createFilterFa
     return absl::InvalidArgumentError("Failed to load dynamic module: " +
                                       std::string(dynamic_module.status().message()));
   }
-
   std::string config;
   if (proto_config.has_filter_config()) {
     auto config_or_error = MessageUtil::anyToBytes(proto_config.filter_config());
@@ -33,18 +45,8 @@ absl::StatusOr<Http::FilterFactoryCb> DynamicModuleConfigFactory::createFilterFa
       filter_config =
           Envoy::Extensions::DynamicModules::HttpFilters::newDynamicModuleHttpFilterConfig(
               proto_config.filter_name(), config, std::move(dynamic_module.value()));
-
-  if (!filter_config.ok()) {
-    return absl::InvalidArgumentError("Failed to create filter config: " +
-                                      std::string(filter_config.status().message()));
-  }
-  return [config = filter_config.value()](Http::FilterChainFactoryCallbacks& callbacks) -> void {
-    auto filter =
-        std::make_shared<Envoy::Extensions::DynamicModules::HttpFilters::DynamicModuleHttpFilter>(
-            config);
-    filter->initializeInModuleFilter();
-    callbacks.addStreamFilter(filter);
-  };
+  RETURN_IF_NOT_OK_REF(filter_config.status());
+  return filter_config;
 }
 
 } // namespace Configuration
