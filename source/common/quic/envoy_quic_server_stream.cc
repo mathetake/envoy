@@ -4,7 +4,6 @@
 #include <openssl/evp.h>
 
 #include <memory>
-#include <utility>
 
 #include "source/common/buffer/buffer_impl.h"
 #include "source/common/common/assert.h"
@@ -229,10 +228,7 @@ void EnvoyQuicServerStream::OnInitialHeadersComplete(bool fin, size_t frame_len,
   }
 #endif
 
-  Http::RequestDecoder* decoder = request_decoder_->get().ptr();
-  if (decoder != nullptr) {
-    decoder->decodeHeaders(std::move(headers), /*end_stream=*/end_stream);
-  }
+  request_decoder_->decodeHeaders(std::move(headers), /*end_stream=*/end_stream);
   ConsumeHeaderList();
 }
 
@@ -287,10 +283,7 @@ void EnvoyQuicServerStream::OnBodyAvailable() {
       // A stream error has occurred, stop processing.
       return;
     }
-    Http::RequestDecoder* decoder = request_decoder_->get().ptr();
-    if (decoder != nullptr) {
-      decoder->decodeData(*buffer, fin_read_and_no_trailers);
-    }
+    request_decoder_->decodeData(*buffer, fin_read_and_no_trailers);
   }
 
   if (!sequencer()->IsClosed() || read_side_closed()) {
@@ -343,10 +336,7 @@ void EnvoyQuicServerStream::maybeDecodeTrailers() {
       onStreamError(close_connection_upon_invalid_header_, rst);
       return;
     }
-    Http::RequestDecoder* decoder = request_decoder_->get().ptr();
-    if (decoder != nullptr) {
-      decoder->decodeTrailers(std::move(trailers));
-    }
+    request_decoder_->decodeTrailers(std::move(trailers));
     MarkTrailersConsumed();
   }
 }
@@ -521,10 +511,7 @@ void EnvoyQuicServerStream::OnMetadataComplete(size_t /*frame_len*/,
     return;
   }
   if (!header_list.empty()) {
-    Http::RequestDecoder* decoder = request_decoder_->get().ptr();
-    if (decoder != nullptr) {
-      decoder->decodeMetadata(metadataMapFromHeaderList(header_list));
-    }
+    request_decoder_->decodeMetadata(metadataMapFromHeaderList(header_list));
   }
 }
 
@@ -567,8 +554,8 @@ bool EnvoyQuicServerStream::hasPendingData() {
 #ifdef ENVOY_ENABLE_HTTP_DATAGRAMS
 void EnvoyQuicServerStream::useCapsuleProtocol() {
   http_datagram_handler_ = std::make_unique<HttpDatagramHandler>(*this);
-  ASSERT(request_decoder_->get().has_value());
-  http_datagram_handler_->setStreamDecoder(request_decoder_->get().ptr());
+  ASSERT(request_decoder_ != nullptr);
+  http_datagram_handler_->setStreamDecoder(request_decoder_);
   RegisterHttp3DatagramVisitor(http_datagram_handler_.get());
 }
 #endif

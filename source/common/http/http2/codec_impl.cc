@@ -605,7 +605,6 @@ void ConnectionImpl::StreamImpl::decodeData() {
         stream_manager_.decodeAsChunks() &&
         pending_recv_data_->length() > stream_manager_.defer_processing_segment_size_;
 
-    StreamDecoder* stream_decoder = decoder();
     if (decode_data_in_chunk) {
       Buffer::OwnedImpl chunk_buffer;
       // TODO(kbaichoo): Consider implementing an approximate move for chunking.
@@ -616,9 +615,7 @@ void ConnectionImpl::StreamImpl::decodeData() {
       stream_manager_.body_buffered_ = true;
       ASSERT(pending_recv_data_->length() > 0);
 
-      if (stream_decoder) {
-        stream_decoder->decodeData(chunk_buffer, sendEndStream());
-      }
+      decoder().decodeData(chunk_buffer, sendEndStream());
       already_drained_data = true;
 
       if (!buffersOverrun()) {
@@ -626,9 +623,7 @@ void ConnectionImpl::StreamImpl::decodeData() {
       }
     } else {
       // Send the entire buffer through.
-      if (stream_decoder) {
-        stream_decoder->decodeData(*pending_recv_data_, sendEndStream());
-      }
+      decoder().decodeData(*pending_recv_data_, sendEndStream());
     }
   }
 
@@ -709,11 +704,7 @@ void ConnectionImpl::ServerStreamImpl::decodeHeaders() {
     Http::Utility::transformUpgradeRequestFromH2toH1(*headers);
   }
 #endif
-  RequestDecoder* request_decoder = request_decoder_handle_->get().ptr();
-  ENVOY_BUG(request_decoder != nullptr, "Missing request_decoder_");
-  if (request_decoder) {
-    request_decoder->decodeHeaders(std::move(headers), sendEndStream());
-  }
+  request_decoder_->decodeHeaders(std::move(headers), sendEndStream());
 }
 
 void ConnectionImpl::ServerStreamImpl::decodeTrailers() {
@@ -724,12 +715,8 @@ void ConnectionImpl::ServerStreamImpl::decodeTrailers() {
   // Consume any buffered trailers.
   stream_manager_.trailers_buffered_ = false;
 
-  RequestDecoder* request_decoder = request_decoder_handle_->get().ptr();
-  ENVOY_BUG(request_decoder != nullptr, "Missing request_decoder_");
-  if (request_decoder) {
-    request_decoder->decodeTrailers(
-        std::move(absl::get<RequestTrailerMapPtr>(headers_or_trailers_)));
-  }
+  request_decoder_->decodeTrailers(
+      std::move(absl::get<RequestTrailerMapPtr>(headers_or_trailers_)));
 }
 
 void ConnectionImpl::StreamImpl::pendingSendBufferHighWatermark() {
@@ -961,10 +948,7 @@ void ConnectionImpl::StreamImpl::onMetadataDecoded(MetadataMapPtr&& metadata_map
     ENVOY_CONN_LOG(debug, "decode metadata called with empty map, skipping", parent_.connection_);
     parent_.stats_.metadata_empty_frames_.inc();
   } else {
-    StreamDecoder* stream_decoder = decoder();
-    if (stream_decoder) {
-      stream_decoder->decodeMetadata(std::move(metadata_map_ptr));
-    }
+    decoder().decodeMetadata(std::move(metadata_map_ptr));
   }
 }
 

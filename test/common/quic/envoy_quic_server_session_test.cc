@@ -231,16 +231,6 @@ public:
     return envoy_quic_session_.initializeReadFilters();
   }
 
-  void setupRequestDecoderMock(Http::MockRequestDecoder& request_decoder) {
-    EXPECT_CALL(request_decoder, getRequestDecoderHandle())
-        .WillRepeatedly(Invoke([&request_decoder]() {
-          auto handle = std::make_unique<NiceMock<Http::MockRequestDecoderHandle>>();
-          ON_CALL(*handle, get())
-              .WillByDefault(Return(OptRef<Http::RequestDecoder>(request_decoder)));
-          return handle;
-        }));
-  }
-
   quic::QuicStream* createNewStream(Http::MockRequestDecoder& request_decoder,
                                     Http::MockStreamCallbacks& stream_callbacks) {
     return createNewStreamWithId(/*stream_id=*/4u, request_decoder, stream_callbacks);
@@ -323,7 +313,6 @@ TEST_F(EnvoyQuicServerSessionTest, NewStream) {
   EXPECT_EQ(envoy_quic_session_.GetCryptoStream()->GetSsl(),
             static_cast<const QuicSslConnectionInfo&>(*envoy_quic_session_.ssl()).ssl());
   Http::MockRequestDecoder request_decoder;
-  setupRequestDecoderMock(request_decoder);
   EXPECT_CALL(http_connection_callbacks_, newStream(_, false))
       .WillOnce(testing::ReturnRef(request_decoder));
   EXPECT_CALL(request_decoder, accessLogHandlers());
@@ -352,56 +341,6 @@ TEST_F(EnvoyQuicServerSessionTest, NewStream) {
   stream->OnStreamHeaderList(/*fin=*/true, headers.uncompressed_header_bytes(), headers);
 }
 
-TEST_F(EnvoyQuicServerSessionTest, ProtocolStreamId) {
-  installReadFilter();
-
-  quic::QuicStreamId stream_id = 0;
-  for (int i = 0; i < 10; ++i) {
-    Http::MockRequestDecoder request_decoder;
-    setupRequestDecoderMock(request_decoder);
-    EXPECT_CALL(http_connection_callbacks_, newStream(_, false))
-        .WillOnce(testing::ReturnRef(request_decoder));
-    EXPECT_CALL(request_decoder, accessLogHandlers());
-    auto stream =
-        reinterpret_cast<EnvoyQuicServerStream*>(envoy_quic_session_.GetOrCreateStream(stream_id));
-    EXPECT_EQ(stream_id, stream->codecStreamId());
-    stream_id += 4;
-  }
-}
-
-TEST_F(EnvoyQuicServerSessionTest, DoesNotCrashWithDestroyedRequestDecoder) {
-  installReadFilter();
-
-  Http::MockRequestDecoder request_decoder;
-  EXPECT_CALL(http_connection_callbacks_, newStream(_, false))
-      .WillOnce(testing::ReturnRef(request_decoder));
-  EXPECT_CALL(request_decoder, accessLogHandlers());
-  Http::MockRequestDecoderHandle* request_decoder_handle = nullptr;
-  EXPECT_CALL(request_decoder, getRequestDecoderHandle()).WillRepeatedly(Invoke([&]() {
-    auto handle = std::make_unique<testing::NiceMock<Http::MockRequestDecoderHandle>>();
-    ON_CALL(*handle, get()).WillByDefault(Return(OptRef<Http::RequestDecoder>(request_decoder)));
-    request_decoder_handle = handle.get();
-    return handle;
-  }));
-  quic::QuicStreamId stream_id = 4u;
-  auto stream =
-      dynamic_cast<EnvoyQuicServerStream*>(envoy_quic_session_.GetOrCreateStream(stream_id));
-  ASSERT_NE(stream, nullptr);
-  ASSERT_NE(request_decoder_handle, nullptr);
-
-  EXPECT_CALL(*request_decoder_handle, get()).WillOnce(Return(OptRef<Http::RequestDecoder>()));
-  EXPECT_CALL(request_decoder, decodeHeaders_(_, _)).Times(0);
-  quic::QuicHeaderList headers;
-  std::string host("www.abc.com");
-  headers.OnHeader(":authority", host);
-  headers.OnHeader(":method", "GET");
-  headers.OnHeader(":path", "/");
-  headers.OnHeader(":scheme", "https");
-  headers.OnHeaderBlockEnd(/*uncompressed_header_bytes=*/0,
-                           /*compressed_header_bytes=*/0);
-  stream->OnStreamHeaderList(/*fin=*/true, headers.uncompressed_header_bytes(), headers);
-}
-
 TEST_F(EnvoyQuicServerSessionTest, InvalidIncomingStreamId) {
   installReadFilter();
   Http::MockRequestDecoder request_decoder;
@@ -410,7 +349,6 @@ TEST_F(EnvoyQuicServerSessionTest, InvalidIncomingStreamId) {
   quic::QuicStreamId stream_id = 5u;
   std::string data("aaaa");
   quic::QuicStreamFrame stream_frame(stream_id, false, 0, data);
-  setupRequestDecoderMock(request_decoder);
   EXPECT_CALL(http_connection_callbacks_, newStream(_, false)).Times(0);
   EXPECT_CALL(*quic_connection_, SendConnectionClosePacket(quic::QUIC_HTTP_STREAM_WRONG_DIRECTION,
                                                            _, "Data for nonexistent stream"));
@@ -425,7 +363,6 @@ TEST_F(EnvoyQuicServerSessionTest, NoNewStreamForInvalidIncomingStream) {
   Http::MockStreamCallbacks stream_callbacks;
   // IETF stream 5 is server initiated.
   quic::QuicStreamId stream_id = 5u;
-  setupRequestDecoderMock(request_decoder);
   EXPECT_CALL(http_connection_callbacks_, newStream(_, false)).Times(0);
   EXPECT_CALL(*quic_connection_, SendConnectionClosePacket(quic::QUIC_HTTP_STREAM_WRONG_DIRECTION,
                                                            _, "Data for nonexistent stream"));
@@ -441,7 +378,6 @@ TEST_F(EnvoyQuicServerSessionTest, OnResetFrameIetfQuic) {
   Http::MockRequestDecoder request_decoder;
   Http::MockStreamCallbacks stream_callbacks;
   EXPECT_CALL(request_decoder, accessLogHandlers()).Times(3);
-  setupRequestDecoderMock(request_decoder);
   auto stream1 =
       dynamic_cast<EnvoyQuicServerStream*>(createNewStream(request_decoder, stream_callbacks));
   // Receiving RESET_STREAM alone should only close read side.
@@ -520,7 +456,6 @@ TEST_F(EnvoyQuicServerSessionTest, ResetStream) {
 
   Http::MockRequestDecoder request_decoder;
   Http::MockStreamCallbacks stream_callbacks;
-  setupRequestDecoderMock(request_decoder);
   EXPECT_CALL(request_decoder, accessLogHandlers());
   auto stream1 =
       dynamic_cast<EnvoyQuicServerStream*>(createNewStream(request_decoder, stream_callbacks));
@@ -558,7 +493,6 @@ TEST_F(EnvoyQuicServerSessionTest, ConnectionCloseWithActiveStream) {
 
   Http::MockRequestDecoder request_decoder;
   Http::MockStreamCallbacks stream_callbacks;
-  setupRequestDecoderMock(request_decoder);
   EXPECT_CALL(request_decoder, accessLogHandlers());
   quic::QuicStream* stream = createNewStream(request_decoder, stream_callbacks);
   EXPECT_CALL(*quic_connection_, SendConnectionClosePacket(quic::QUIC_NO_ERROR, _, _));
@@ -574,7 +508,6 @@ TEST_F(EnvoyQuicServerSessionTest, RemoteConnectionCloseWithActiveStream) {
 
   Http::MockRequestDecoder request_decoder;
   Http::MockStreamCallbacks stream_callbacks;
-  setupRequestDecoderMock(request_decoder);
   EXPECT_CALL(request_decoder, accessLogHandlers());
   quic::QuicStream* stream = createNewStream(request_decoder, stream_callbacks);
   EXPECT_CALL(network_connection_callbacks_, onEvent(Network::ConnectionEvent::RemoteClose));
@@ -594,7 +527,6 @@ TEST_F(EnvoyQuicServerSessionTest, NoFlushWithDataToWrite) {
 
   Http::MockRequestDecoder request_decoder;
   Http::MockStreamCallbacks stream_callbacks;
-  setupRequestDecoderMock(request_decoder);
   EXPECT_CALL(request_decoder, accessLogHandlers());
   quic::QuicStream* stream = createNewStream(request_decoder, stream_callbacks);
   envoy_quic_session_.MarkConnectionLevelWriteBlocked(stream->id());
@@ -612,7 +544,6 @@ TEST_F(EnvoyQuicServerSessionTest, FlushCloseWithDataToWrite) {
   installReadFilter();
   Http::MockRequestDecoder request_decoder;
   Http::MockStreamCallbacks stream_callbacks;
-  setupRequestDecoderMock(request_decoder);
   EXPECT_CALL(request_decoder, accessLogHandlers());
   quic::QuicStream* stream = createNewStream(request_decoder, stream_callbacks);
 
@@ -652,7 +583,6 @@ TEST_F(EnvoyQuicServerSessionTest, WriteUpdatesDelayCloseTimer) {
   envoy_quic_session_.setDelayedCloseTimeout(std::chrono::milliseconds(100));
   Http::MockRequestDecoder request_decoder;
   Http::MockStreamCallbacks stream_callbacks;
-  setupRequestDecoderMock(request_decoder);
   EXPECT_CALL(request_decoder, accessLogHandlers());
   // Create a stream and write enough data to make it blocked.
   auto stream =
@@ -755,7 +685,6 @@ TEST_F(EnvoyQuicServerSessionTest, FlushCloseNoTimeout) {
 
   Http::MockRequestDecoder request_decoder;
   Http::MockStreamCallbacks stream_callbacks;
-  setupRequestDecoderMock(request_decoder);
   EXPECT_CALL(request_decoder, accessLogHandlers());
   // Create a stream and write enough data to make it blocked.
   auto stream =
@@ -818,7 +747,6 @@ TEST_F(EnvoyQuicServerSessionTest, FlushCloseWithTimeout) {
   envoy_quic_session_.setDelayedCloseTimeout(std::chrono::milliseconds(100));
   Http::MockRequestDecoder request_decoder;
   Http::MockStreamCallbacks stream_callbacks;
-  setupRequestDecoderMock(request_decoder);
   EXPECT_CALL(request_decoder, accessLogHandlers());
   quic::QuicStream* stream = createNewStream(request_decoder, stream_callbacks);
 
@@ -850,7 +778,6 @@ TEST_F(EnvoyQuicServerSessionTest, FlushAndWaitForCloseWithTimeout) {
   envoy_quic_session_.setDelayedCloseTimeout(std::chrono::milliseconds(100));
   Http::MockRequestDecoder request_decoder;
   Http::MockStreamCallbacks stream_callbacks;
-  setupRequestDecoderMock(request_decoder);
   EXPECT_CALL(request_decoder, accessLogHandlers());
   quic::QuicStream* stream = createNewStream(request_decoder, stream_callbacks);
 
@@ -881,7 +808,6 @@ TEST_F(EnvoyQuicServerSessionTest, FlusWriteTransitToFlushWriteWithDelay) {
   envoy_quic_session_.setDelayedCloseTimeout(std::chrono::milliseconds(100));
   Http::MockRequestDecoder request_decoder;
   Http::MockStreamCallbacks stream_callbacks;
-  setupRequestDecoderMock(request_decoder);
   EXPECT_CALL(request_decoder, accessLogHandlers());
   quic::QuicStream* stream = createNewStream(request_decoder, stream_callbacks);
 
@@ -993,7 +919,6 @@ TEST_F(EnvoyQuicServerSessionTest, SendBufferWatermark) {
   installReadFilter();
   Http::MockRequestDecoder request_decoder;
   Http::MockStreamCallbacks stream_callbacks;
-  setupRequestDecoderMock(request_decoder);
   EXPECT_CALL(request_decoder, accessLogHandlers());
   EXPECT_CALL(http_connection_callbacks_, newStream(_, false))
       .WillOnce(Invoke([&request_decoder, &stream_callbacks](Http::ResponseEncoder& encoder,
@@ -1038,7 +963,6 @@ TEST_F(EnvoyQuicServerSessionTest, SendBufferWatermark) {
   // send buffer watermark.
   Http::MockRequestDecoder request_decoder2;
   Http::MockStreamCallbacks stream_callbacks2;
-  setupRequestDecoderMock(request_decoder2);
   EXPECT_CALL(request_decoder2, accessLogHandlers());
   EXPECT_CALL(http_connection_callbacks_, newStream(_, false))
       .WillOnce(Invoke([&request_decoder2, &stream_callbacks2](Http::ResponseEncoder& encoder,
@@ -1070,7 +994,6 @@ TEST_F(EnvoyQuicServerSessionTest, SendBufferWatermark) {
   // high watermark reached upon creation.
   Http::MockRequestDecoder request_decoder3;
   Http::MockStreamCallbacks stream_callbacks3;
-  setupRequestDecoderMock(request_decoder3);
   EXPECT_CALL(request_decoder3, accessLogHandlers());
   EXPECT_CALL(http_connection_callbacks_, newStream(_, false))
       .WillOnce(Invoke([&request_decoder3, &stream_callbacks3](Http::ResponseEncoder& encoder,
@@ -1163,7 +1086,6 @@ TEST_F(EnvoyQuicServerSessionTest, IncomingUnidirectionalReadStream) {
   quic::QuicStreamId stream_id = 2u;
   auto payload = std::make_unique<char[]>(8);
   quic::QuicDataWriter payload_writer(8, payload.get());
-  setupRequestDecoderMock(request_decoder);
   EXPECT_TRUE(payload_writer.WriteVarInt62(1ul));
   EXPECT_CALL(http_connection_callbacks_, newStream(_, false)).Times(0u);
   EXPECT_CALL(network_connection_callbacks_, onEvent(Network::ConnectionEvent::LocalClose));

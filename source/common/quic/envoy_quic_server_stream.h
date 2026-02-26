@@ -27,8 +27,8 @@ public:
                             headers_with_underscores_action);
 
   void setRequestDecoder(Http::RequestDecoder& decoder) override {
-    request_decoder_ = decoder.getRequestDecoderHandle();
-    stats_gatherer_->setAccessLogHandlers(request_decoder_->get()->accessLogHandlers());
+    request_decoder_ = &decoder;
+    stats_gatherer_->setAccessLogHandlers(request_decoder_->accessLogHandlers());
   }
 
   // Http::StreamEncoder
@@ -123,7 +123,7 @@ private:
   void useCapsuleProtocol();
 #endif
 
-  Http::RequestDecoderHandlePtr request_decoder_;
+  Http::RequestDecoder* request_decoder_{nullptr};
   envoy::config::core::v3::HttpProtocolOptions::HeadersWithUnderscoresAction
       headers_with_underscores_action_;
 

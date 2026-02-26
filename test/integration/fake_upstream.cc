@@ -77,10 +77,6 @@ void FakeStream::decodeMetadata(Http::MetadataMapPtr&& metadata_map_ptr) {
   }
 }
 
-Http::RequestDecoderHandlePtr FakeStream::getRequestDecoderHandle() {
-  return std::make_unique<FakeStreamRequestDecoderHandle>(*this);
-}
-
 void FakeStream::postToConnectionThread(std::function<void()> cb) {
   parent_.postToConnectionThread(cb);
 }

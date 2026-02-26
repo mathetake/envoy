@@ -7,7 +7,6 @@
 #include "envoy/access_log/access_log.h"
 #include "envoy/buffer/buffer.h"
 #include "envoy/common/matchers.h"
-#include "envoy/common/optref.h"
 #include "envoy/common/pure.h"
 #include "envoy/grpc/status.h"
 #include "envoy/http/codec_runtime_overrides.h"
@@ -40,17 +39,6 @@ struct CodecStats;
 
 class Stream;
 class RequestDecoder;
-
-class RequestDecoderHandle {
-public:
-  virtual ~RequestDecoderHandle() = default;
-
-  /**
-   * @return a reference to the underlying decoder if it is still valid.
-   */
-  virtual OptRef<RequestDecoder> get() PURE;
-};
-using RequestDecoderHandlePtr = std::unique_ptr<RequestDecoderHandle>;
 
 /**
  * Error codes used to convey the reason for a GOAWAY.
@@ -280,12 +268,6 @@ public:
    * @return List of shared pointers to access loggers for this stream.
    */
   virtual AccessLog::InstanceSharedPtrVector accessLogHandlers() PURE;
-
-  /**
-   * @return A handle to the request decoder. Caller can check the request decoder's liveness via
-   * the handle.
-   */
-  virtual RequestDecoderHandlePtr getRequestDecoderHandle() PURE;
 };
 
 /**
