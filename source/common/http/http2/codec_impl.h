@@ -170,6 +170,18 @@ public:
     }
   }
   void onUnderlyingConnectionBelowWriteBufferLowWatermark() override;
+  void notifyOfConnectionClose() override {
+    // The streams without a reset reason are given connection termination. As the
+    // connection is going away and the HCM level stream is being cleaned up. This makes sure that
+    // deferred processing stops. This doesn't impact the client as it uses `resetStream` directly
+    // notifying the codec. We don't use that in the server side due to this comment:
+    // https://github.com/envoyproxy/envoy/blob/0ece2dc85771042b74b5e9448d44ba50d2a4e34d/source/common/http/conn_manager_impl.cc#L565
+    for (auto& stream : active_streams_) {
+      if (!stream->reset_reason_.has_value()) {
+        stream->reset_reason_.emplace(StreamResetReason::ConnectionTermination);
+      }
+    }
+  }
 
   void setVisitor(std::unique_ptr<http2::adapter::Http2VisitorInterface> visitor) {
     visitor_ = std::move(visitor);

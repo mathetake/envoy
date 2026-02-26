@@ -4238,6 +4238,47 @@ TEST_P(Http2CodecImplTest,
   }
 }
 
+TEST_P(Http2CodecImplTest, ShouldNotInvokeDeferredProcessingIfTheConnectionNotifiedOfClose) {
+  // We must initialize before dtor, otherwise we'll touch uninitialized
+  // members in dtor.
+  initialize();
+
+  TestRequestHeaderMapImpl request_headers;
+  HttpTestUtility::addDefaultHeaders(request_headers);
+  EXPECT_CALL(request_decoder_, decodeHeaders_(_, false));
+  EXPECT_TRUE(request_encoder_->encodeHeaders(request_headers, false).ok());
+  driveToCompletion();
+
+  // Force the stream to buffer data at the receiving codec.
+  server_->getStream(1)->readDisable(true);
+  Buffer::OwnedImpl first_part(std::string(1024, 'a'));
+  request_encoder_->encodeData(first_part, false);
+  driveToCompletion();
+
+  // Finish request in subsequent call.
+  Buffer::OwnedImpl final_part(std::string(1024, 'a'));
+  request_encoder_->encodeData(final_part, true);
+  driveToCompletion();
+
+  auto* process_buffered_data_callback =
+      new NiceMock<Event::MockSchedulableCallback>(&server_connection_.dispatcher_);
+  EXPECT_FALSE(process_buffered_data_callback->enabled_);
+
+  server_->getStream(1)->readDisable(false);
+
+  EXPECT_TRUE(process_buffered_data_callback->enabled_);
+
+  // Notify the connection of a close which should prevent additional deferred processing.
+  server_->notifyOfConnectionClose();
+
+  // Now invoke the deferred processing callback.
+  {
+    InSequence seq;
+    EXPECT_CALL(request_decoder_, decodeData(_, true)).Times(0);
+    process_buffered_data_callback->invokeCallback();
+  }
+}
+
 TEST_P(Http2CodecImplTest, ShouldTrackWhichStreamLeastRecentlyEncodedIfDeferProcessingEnabled) {
   allow_metadata_ = true;
 

@@ -139,6 +139,7 @@ void CodecClient::onEvent(Network::ConnectionEvent event) {
       // Fake resetting all active streams so that reset() callbacks get invoked.
       active_requests_.front()->getStream().resetStream(reason);
     }
+    codec_->notifyOfConnectionClose();
   }
 }
 

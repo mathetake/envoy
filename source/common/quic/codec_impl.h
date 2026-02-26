@@ -25,6 +25,9 @@ public:
     PANIC("not implemented"); // QUIC connection already hands all data to streams.
   }
   Http::Protocol protocol() override { return Http::Protocol::Http3; }
+  // Called during connection close. There's no deferred processing for this codec so no need to
+  // change state.
+  void notifyOfConnectionClose() override {}
   // Returns true if the session has data to send but queued in connection or
   // stream send buffer.
   bool wantsToWrite() override { return quic_session_.bytesToSend() > 0; }

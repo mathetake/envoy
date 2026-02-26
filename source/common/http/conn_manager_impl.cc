@@ -663,6 +663,7 @@ void ConnectionManagerImpl::doConnectionClose(
 
     stats_.named_.downstream_cx_destroy_active_rq_.inc();
     user_agent_.onConnectionDestroy(event, true);
+    codec_->notifyOfConnectionClose();
     // Note that resetAllStreams() does not actually write anything to the wire. It just resets
     // all upstream streams and their filter stacks. Thus, there are no issues around recursive
     // entry.

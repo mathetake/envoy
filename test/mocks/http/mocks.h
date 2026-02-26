@@ -160,6 +160,7 @@ public:
   MOCK_METHOD(bool, wantsToWrite, ());
   MOCK_METHOD(void, onUnderlyingConnectionAboveWriteBufferHighWatermark, ());
   MOCK_METHOD(void, onUnderlyingConnectionBelowWriteBufferLowWatermark, ());
+  MOCK_METHOD(void, notifyOfConnectionClose, ());
 
   Protocol protocol_{Protocol::Http11};
 };
@@ -177,6 +178,7 @@ public:
   MOCK_METHOD(bool, wantsToWrite, ());
   MOCK_METHOD(void, onUnderlyingConnectionAboveWriteBufferHighWatermark, ());
   MOCK_METHOD(void, onUnderlyingConnectionBelowWriteBufferLowWatermark, ());
+  MOCK_METHOD(void, notifyOfConnectionClose, ());
 
   // Http::ClientConnection
   MOCK_METHOD(RequestEncoder&, newStream, (ResponseDecoder & response_decoder));

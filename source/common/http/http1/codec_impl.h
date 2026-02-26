@@ -269,6 +269,9 @@ public:
   bool wantsToWrite() override { return false; }
   void onUnderlyingConnectionAboveWriteBufferHighWatermark() override { onAboveHighWatermark(); }
   void onUnderlyingConnectionBelowWriteBufferLowWatermark() override { onBelowLowWatermark(); }
+  // Called during connection close. There's no deferred processing for this codec so no need to
+  // change state.
+  void notifyOfConnectionClose() override {}
 
   // Codec errors found in callbacks are overridden within the http_parser library. This holds those
   // errors to propagate them through to dispatch() where we can handle the error.

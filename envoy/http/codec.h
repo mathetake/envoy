@@ -606,6 +606,12 @@ public:
    * low watermark.
    */
   virtual void onUnderlyingConnectionBelowWriteBufferLowWatermark() PURE;
+
+  /**
+   * Notify the underlying codec connection that the connection is being closed. This is used to
+   * prevent any additional work the codec might incur if the connection is going away.
+   */
+  virtual void notifyOfConnectionClose() PURE;
 };
 
 /**

@@ -182,6 +182,7 @@ TEST_F(CodecClientTest, DisconnectBeforeHeaders) {
   EXPECT_CALL(callbacks, onResetStream(StreamResetReason::ConnectionTermination, _));
   EXPECT_CALL(*codec_, dispatch(_));
   connection_cb_->onEvent(Network::ConnectionEvent::Connected);
+  EXPECT_CALL(*codec_, notifyOfConnectionClose);
   connection_cb_->onEvent(Network::ConnectionEvent::RemoteClose);
 }
 
@@ -218,6 +219,7 @@ TEST_F(CodecClientTest, IdleTimerWithNoActiveRequests) {
   // Close the client and validate idleTimer is reset
   EXPECT_EQ(client_->numActiveRequests(), 0);
   client_->close();
+  EXPECT_CALL(*codec_, notifyOfConnectionClose);
   // TODO(ramaraochavali): Use default connection mock handlers for raising events.
   connection_cb_->onEvent(Network::ConnectionEvent::LocalClose);
   EXPECT_EQ(client_->idleTimer(), nullptr);
@@ -244,6 +246,7 @@ TEST_F(CodecClientTest, IdleTimerClientRemoteCloseWithActiveRequests) {
   EXPECT_CALL(*codec_, dispatch(_));
   EXPECT_NE(client_->numActiveRequests(), 0);
   connection_cb_->onEvent(Network::ConnectionEvent::Connected);
+  EXPECT_CALL(*codec_, notifyOfConnectionClose);
   connection_cb_->onEvent(Network::ConnectionEvent::RemoteClose);
   EXPECT_EQ(client_->idleTimer(), nullptr);
 }
@@ -268,6 +271,7 @@ TEST_F(CodecClientTest, IdleTimerClientLocalCloseWithActiveRequests) {
   connection_cb_->onEvent(Network::ConnectionEvent::Connected);
   // TODO(ramaraochavali): Use default connection mock handlers for raising events.
   client_->close();
+  EXPECT_CALL(*codec_, notifyOfConnectionClose);
   connection_cb_->onEvent(Network::ConnectionEvent::LocalClose);
   EXPECT_EQ(client_->idleTimer(), nullptr);
 }
@@ -650,6 +654,7 @@ public:
   }
 
   void close() {
+    EXPECT_CALL(*codec_, notifyOfConnectionClose);
     client_->close();
     EXPECT_CALL(upstream_callbacks_, onEvent(Network::ConnectionEvent::RemoteClose))
         .WillOnce(InvokeWithoutArgs([&]() -> void { dispatcher_->exit(); }));
@@ -728,6 +733,7 @@ TEST_P(CodecNetworkTest, SendHeadersAndClose) {
     }
     dispatcher_->exit();
   }));
+  EXPECT_CALL(*codec_, notifyOfConnectionClose);
   dispatcher_->run(Event::Dispatcher::RunType::Block);
 }
 
@@ -763,6 +769,7 @@ TEST_P(CodecNetworkTest, SendHeadersAndCloseUnderReadDisable) {
     }
     dispatcher_->exit();
   }));
+  EXPECT_CALL(*codec_, notifyOfConnectionClose);
   dispatcher_->run(Event::Dispatcher::RunType::Block);
 }
 
