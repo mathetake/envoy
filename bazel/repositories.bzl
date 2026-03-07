@@ -234,7 +234,11 @@ def envoy_dependencies(skip_targets = []):
     external_http_archive("flatbuffers")
     external_http_archive("bazel_features")
     external_http_archive("bazel_compdb")
-    external_http_archive("envoy_toolshed")
+    external_http_archive(
+        "envoy_toolshed",
+        patch_args = ["-p1"],
+        patches = ["@envoy//bazel/foreign_cc:toolshed.patch"],
+    )
 
     _libmaxminddb()
     _thrift()
