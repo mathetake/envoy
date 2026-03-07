@@ -795,6 +795,7 @@ envoy_toolshed:
   implied_untracked_deps:
   - sysroot_linux_amd64
   - sysroot_linux_arm64
+  - sysroot_linux_arm64_with_libcxx
   - tsan_libs
   - msan_libs
   license: "Apache-2.0"

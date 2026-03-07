@@ -14,19 +14,42 @@ LLVM_AARCH64_SHA256 = {
     "18.1.8": "dcaa1bebbfbb86953fdfbdc7f938800229f75ad26c5c9375ef242edad737d999",
 }
 
+_BUILD_FILE = """\
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "sysroot",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "**/*:*",
+            "**/*.pl",
+        ],
+    ),
+)
+"""
+
 def _aarch64_sysroot_with_libcxx_impl(ctx):
     # Step 1: Download and extract the OS sysroot at the repository root.
+    # Pass URL as a positional argument (keyword form is disallowed by format check).
     ctx.download_and_extract(
-        url = ctx.attr.os_sysroot_url,
+        ctx.attr.os_sysroot_url,
         sha256 = ctx.attr.os_sysroot_sha256,
         stripPrefix = "",
         output = "",
     )
 
+    # On aarch64 hosts the native clang toolchain already provides libc++ for
+    # aarch64 targets, so no LLVM overlay is needed.  Skip the download and
+    # emit a plain sysroot filegroup so the toolchain config still resolves.
+    if ctx.os.arch == "aarch64":
+        ctx.file("BUILD.bazel", _BUILD_FILE)
+        return
+
     # Step 2: Download the LLVM aarch64 tarball.
     # We only extract the three library files we need, keeping disk usage low.
     ctx.download(
-        url = ctx.attr.llvm_url,
+        ctx.attr.llvm_url,
         output = "_llvm_aarch64.tar.xz",
         sha256 = ctx.attr.llvm_sha256,
         executable = False,
@@ -92,20 +115,7 @@ def _aarch64_sysroot_with_libcxx_impl(ctx):
     ctx.execute(["rm", "_llvm_aarch64.tar.xz"])
 
     # Step 4: Create a BUILD file exposing the combined sysroot filegroup.
-    ctx.file("BUILD.bazel", """\
-package(default_visibility = ["//visibility:public"])
-
-filegroup(
-    name = "sysroot",
-    srcs = glob(
-        ["**"],
-        exclude = [
-            "**/*:*",
-            "**/*.pl",
-        ],
-    ),
-)
-""")
+    ctx.file("BUILD.bazel", _BUILD_FILE)
 
 aarch64_sysroot_with_libcxx = repository_rule(
     implementation = _aarch64_sysroot_with_libcxx_impl,
