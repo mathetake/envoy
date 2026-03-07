@@ -6,6 +6,14 @@ This lets us use libc++ (matching native x86_64 builds) instead of
 libstdc++, avoiding duplicate-symbol conflicts with TCMalloc.
 """
 
+# SHA256 hashes for the official LLVM aarch64-linux-gnu binary tarballs.
+# These mirror the entries in toolchains_llvm's internal llvm_distributions.bzl
+# (which is private and cannot be imported directly).
+# Update this dict whenever VERSIONS["llvm"] in @envoy_toolshed//:versions.bzl changes.
+LLVM_AARCH64_SHA256 = {
+    "18.1.8": "dcaa1bebbfbb86953fdfbdc7f938800229f75ad26c5c9375ef242edad737d999",
+}
+
 def _aarch64_sysroot_with_libcxx_impl(ctx):
     # Step 1: Download and extract the OS sysroot at the repository root.
     ctx.download_and_extract(
