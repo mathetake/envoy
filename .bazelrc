@@ -511,23 +511,3 @@ try-import %workspace%/repo.bazelrc
 try-import %workspace%/clang.bazelrc
 try-import %workspace%/user.bazelrc
 try-import %workspace%/local_tsan.bazelrc
-
-#############################################################################
-# cross-arm64: Cross-compile for Linux aarch64 on an amd64 host
-#
-# Usage:
-#   bazel build --config=cross-arm64 //source/exe:envoy
-#
-# Notes:
-#   - Uses clang from the hermetic LLVM 18 toolchain with the arm64 sysroot.
-#   - stdlib=libc++ is set in bazel/toolchains.bzl to prevent the
-#     toolchains_llvm cross-compile downgrade to stdc++; libc++ headers come
-#     from external/llvm_toolchain_llvm/include/c++/v1/ (sandbox-safe, in
-#     the module map).
-#   - Linking requires aarch64 libc++.a which is NOT included in the x86_64
-#     LLVM download. Full link will fail; use --config=rbe with native ARM64
-#     RBE workers (//bazel/platforms/rbe:linux_arm64) for production builds.
-#   - ASAN/TSAN/sanitizer configs are not supported for cross-compilation.
-#############################################################################
-build:cross-arm64 --config=clang
-build:cross-arm64 --platforms=//bazel/platforms:linux_arm64

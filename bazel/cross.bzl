@@ -47,9 +47,12 @@ def _aarch64_sysroot_with_libcxx_impl(ctx):
 
     tar_args = [
         "tar",
-        "-xf", "_llvm_aarch64.tar.xz",
-        "--strip-components", str(num_strip),
-        "-C", "usr/lib/aarch64-linux-gnu",
+        "-xf",
+        "_llvm_aarch64.tar.xz",
+        "--strip-components",
+        str(num_strip),
+        "-C",
+        "usr/lib/aarch64-linux-gnu",
     ] + [
         ctx.attr.llvm_strip_prefix + "/lib/" + ctx.attr.llvm_lib_subdir + "/" + lib
         for lib in ctx.attr.llvm_libs
@@ -74,10 +77,12 @@ def _aarch64_sysroot_with_libcxx_impl(ctx):
     )
     result = ctx.execute([
         "tar",
-        "-xf", "_llvm_aarch64.tar.xz",
+        "-xf",
+        "_llvm_aarch64.tar.xz",
         "--strip-components",
         str(len(ctx.attr.llvm_strip_prefix.split("/")) + 4),  # strip: prefix/include/{triple}/c++/v1
-        "-C", "usr/include",
+        "-C",
+        "usr/include",
         config_site_path,
     ])
     if result.return_code != 0:
