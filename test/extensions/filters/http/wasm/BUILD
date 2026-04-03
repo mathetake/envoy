@@ -81,6 +81,29 @@ envoy_extension_cc_test(
 )
 
 envoy_extension_cc_test(
+    name = "wasm_deferred_data_crash_test",
+    size = "enormous",
+    srcs = ["wasm_deferred_data_crash_test.cc"],
+    data = envoy_select_wasm_rust_tests([
+        "//test/extensions/filters/http/wasm/test_data:deferred_data_crash_rust.wasm",
+    ]),
+    extension_names = ["envoy.filters.http.wasm"],
+    rbe_pool = "4core",
+    tags = ["skip_on_windows"],
+    deps = [
+        "//source/extensions/common/wasm:wasm_lib",
+        "//source/extensions/filters/http/common:pass_through_filter_lib",
+        "//source/extensions/filters/http/wasm:config",
+        "//test/extensions/common/wasm:wasm_runtime",
+        "//test/extensions/filters/http/common:empty_http_filter_config_lib",
+        "//test/integration:http_protocol_integration_lib",
+        "//test/test_common:logging_lib",
+        "//test/test_common:utility_lib",
+        "@abseil-cpp//absl/synchronization",
+    ],
+)
+
+envoy_extension_cc_test(
     name = "wasm_filter_integration_test",
     size = "enormous",
     srcs = ["wasm_filter_integration_test.cc"],
